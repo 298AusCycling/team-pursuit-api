@@ -1,17 +1,62 @@
+# app.py
+
 import streamlit as st
 import pandas as pd
 import time
 import sqlite3
 import json
-import requests
 from datetime import datetime
+from iteration import simulate_race
 
 st.title("Team Pursuit Race Simulator")
 
-DRAFTING_PERCENTS = [1.0, 0.58, 0.52, 0.53]
+# Connect to SQLite database
+conn = sqlite3.connect("simulations.db", check_same_thread=False)
+cursor = conn.cursor()
+
+# Create the simulations table if it doesn't exist
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS simulations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        chosen_athletes TEXT,
+        start_order TEXT,
+        switch_schedule TEXT,
+        peel_location INTEGER,
+        final_order TEXT,
+        final_time REAL,
+        final_distance REAL,
+        final_half_lap_count INTEGER,
+        W_rem TEXT
+    )
+""")
+conn.commit()
+
+drafting_percents = [1.0, 0.58, 0.52, 0.53]
 
 def switch_schedule_description(switch_schedule):
     return [i+1 for i, v in enumerate(switch_schedule) if v == 1]
+
+def save_simulation_to_db(record):
+    cursor.execute("""
+        INSERT INTO simulations (
+            timestamp, chosen_athletes, start_order, switch_schedule,
+            peel_location, final_order, final_time, final_distance,
+            final_half_lap_count, W_rem
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        datetime.fromtimestamp(record["timestamp"]).isoformat(),
+        json.dumps(record["chosen_athletes"]),
+        json.dumps(record["start_order"]),
+        json.dumps(record["switch_schedule"]),
+        record["peel_location"],
+        json.dumps(record["final_order"]),
+        record["final_time"],
+        record["final_distance"],
+        record["final_half_lap_count"],
+        json.dumps(record["W_rem"])
+    ))
+    conn.commit()
 
 uploaded_file = st.file_uploader("Upload Performance Data Excel File", type=["xlsx"])
 
@@ -27,9 +72,12 @@ if uploaded_file:
         .tolist()
     )
 
-    chosen_athletes = st.multiselect("Select 4 Athletes", options=available_athletes)
+    chosen_athletes = st.multiselect("Select 4 Athletes", available_athletes)
+    st.markdown(f"Selected Riders: {sorted(chosen_athletes)}.")
+
     if len(chosen_athletes) == 4:
-        start_order = st.multiselect("Initial Rider Order", options=sorted(chosen_athletes))
+        start_order = st.multiselect("Initial Rider Order", sorted(chosen_athletes))
+        st.markdown(f"Initial Starting Order: {start_order}")
 
         st.subheader("Switch Schedule (32 half-laps)")
         switch_schedule = []
@@ -55,52 +103,74 @@ if uploaded_file:
 
         if peel_location is None:
             st.warning("Please select at least one peel location.")
-        elif st.button("Simulate Race"):
-            st.spinner("Running simulation...")
-
-            payload = {
-                "switch_schedule": switch_schedule,
-                "chosen_athletes": chosen_athletes,
-                "start_order": start_order,
-                "peel_location": peel_location + 1,
-                "df_athletes": df_athletes.to_json(),
-                "power_duration_df": power_duration_df.to_json()
-            }
-
-            response = requests.post("http://localhost:5000/simulate", json=payload)
-
-            if response.status_code == 200:
-                data = response.json()
+        else:
+            if st.button("Simulate Race"):
+                with st.spinner("Running simulation..."):
+                    final_order, final_time, final_distance, final_half_lap_count, W_rem = simulate_race(
+                        switch_schedule=switch_schedule,
+                        chosen_athletes=chosen_athletes,
+                        start_order=start_order,
+                        drafting_percents=drafting_percents,
+                        peel_location=peel_location + 1,
+                        power_duration_df=power_duration_df,
+                        df_athletes=df_athletes,
+                        total_mass=70,
+                        v0=0.5,
+                        rho=1.225
+                    )
 
                 st.success("✅ Simulation Complete!")
-                st.write(f"**Final Order:** {data['final_order']}")
-                st.write(f"**Total Time:** {data['final_time']:.2f} seconds")
-                st.write(f"**Total Distance:** {data['final_distance']:.2f} m")
-                st.write(f"**Half Laps Completed:** {data['final_half_lap_count']}")
+                st.write(f"**Final Order:** {final_order}")
+                st.write(f"**Total Time:** {final_time:.2f} seconds")
+                st.write(f"**Total Distance:** {final_distance:.2f} m")
+                st.write(f"**Half Laps Completed:** {final_half_lap_count}")
                 st.write(f"**Switch at half-laps:** {switch_schedule_description(switch_schedule)}")
 
                 st.subheader("W′ Remaining per Rider:")
-                for k, v in data["W_rem"].items():
+                for k, v in W_rem.items():
                     st.write(f"{k}: {v:.1f} J")
-            else:
-                st.error("❌ Simulation failed.")
 
-st.header("Past Simulations")
-history = requests.get("http://localhost:5000/history").json()
+                simulation_record = {
+                    "timestamp": time.time(),
+                    "chosen_athletes": chosen_athletes,
+                    "start_order": start_order,
+                    "switch_schedule": switch_schedule,
+                    "peel_location": peel_location,
+                    "final_order": final_order,
+                    "final_time": final_time,
+                    "final_distance": final_distance,
+                    "final_half_lap_count": final_half_lap_count,
+                    "W_rem": W_rem
+                }
+                save_simulation_to_db(simulation_record)
+                st.info("Simulation saved to database!")
 
-if not history:
+st.header("Past Simulations (Saved)")
+
+cursor.execute("SELECT * FROM simulations ORDER BY id DESC")
+rows = cursor.fetchall()
+
+if not rows:
     st.write("No simulations saved yet.")
 else:
-    for sim in history:
-        with st.expander(f"Simulation #{sim['id']} ({sim['timestamp']})"):
-            st.write(f"**Riders:** {sim['chosen_athletes']}")
-            st.write(f"**Start Order:** {sim['start_order']}")
-            st.write(f"**Switch Schedule:** {sim['switch_schedule']}")
-            st.write(f"**Peel Location:** {sim['peel_location']}")
-            st.write(f"**Final Order:** {sim['final_order']}")
-            st.write(f"**Final Time:** {sim['final_time']:.2f} s")
-            st.write(f"**Final Distance:** {sim['final_distance']:.2f} m")
-            st.write(f"**Final Half Laps:** {sim['final_half_lap_count']}")
+    for row in rows:
+        sim_id, timestamp, chosen_athletes, start_order, switch_schedule, peel_location, final_order, final_time, final_distance, final_half_lap_count, W_rem = row
+
+        with st.expander(f"Simulation #{sim_id} ({timestamp})"):
+            st.write(f"**Riders:** {json.loads(chosen_athletes)}")
+            st.write(f"**Start Order:** {json.loads(start_order)}")
+            st.write(f"**Switch Schedule:** {json.loads(switch_schedule)}")
+            st.write(f"**Peel Location:** {peel_location}")
+            st.write(f"**Final Order:** {json.loads(final_order)}")
+            st.write(f"**Final Time:** {final_time:.2f} s")
+            st.write(f"**Final Distance:** {final_distance:.2f} m")
+            st.write(f"**Final Half Laps:** {final_half_lap_count}")
             st.write("**W′ Remaining:**")
-            for k, v in sim['W_rem'].items():
+            for k, v in json.loads(W_rem).items():
                 st.write(f"{k}: {v:.1f} J")
+
+            if st.button(f"🗑️ Delete Simulation #{sim_id}", key=f"delete_{sim_id}"):
+                cursor.execute("DELETE FROM simulations WHERE id = ?", (sim_id,))
+                conn.commit()
+                st.success(f"Simulation #{sim_id} deleted.")
+                st.experimental_rerun()
