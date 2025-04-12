@@ -1,9 +1,8 @@
 streamlit
+flask
+flask-cors
 pandas
+numpy
 matplotlib
 scipy
 openpyxl
-sympy
-fastapi
-uvicorn
-pydantic
