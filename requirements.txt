@@ -1,0 +1,11 @@
+streamlit
+pandas
+matplotlib
+scipy
+openpyxl
+sympy
+fastapi
+uvicorn
+pydantic
+pandas
+scipy
