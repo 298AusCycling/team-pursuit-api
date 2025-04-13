@@ -7,6 +7,7 @@ import sqlite3
 import json
 from datetime import datetime
 from iteration import simulate_race
+import io
 
 st.title("Team Pursuit Race Simulator")
 
@@ -174,3 +175,42 @@ else:
                 conn.commit()
                 st.success(f"Simulation #{sim_id} deleted.")
                 st.experimental_rerun()
+
+
+# Add download button at bottom
+st.subheader("Download Past Simulations")
+
+# Fetch all simulation records from DB
+cursor.execute("SELECT * FROM simulations ORDER BY id DESC")
+all_rows = cursor.fetchall()
+
+if all_rows:
+    # Convert to pandas DataFrame
+    df_download = pd.DataFrame([{
+        "id": row[0],
+        "timestamp": row[1],
+        "chosen_athletes": json.loads(row[2]),
+        "start_order": json.loads(row[3]),
+        "switch_schedule": json.loads(row[4]),
+        "peel_location": row[5],
+        "final_order": json.loads(row[6]),
+        "final_time": row[7],
+        "final_distance": row[8],
+        "final_half_lap_count": row[9],
+        "W_rem": json.loads(row[10])
+    } for row in all_rows])
+
+    # Convert to CSV in-memory
+    csv_buffer = io.StringIO()
+    df_download.to_csv(csv_buffer, index=False)
+    csv_bytes = csv_buffer.getvalue().encode("utf-8")
+
+    # Create download button
+    st.download_button(
+        label="Download Simulations as CSV",
+        data=csv_bytes,
+        file_name="simulations.csv",
+        mime="text/csv"
+    )
+else:
+    st.info("No simulations available to download.")
