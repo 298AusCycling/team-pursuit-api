@@ -121,7 +121,7 @@ def plot_switch_strategy(start_order, switch_schedule):
 with tab1:
     uploaded_file = st.file_uploader("Upload Performance Data Excel File", type=["xlsx"])
     with st.popover("Advanced Settings"):
-        rho_input = st.number_input('Pressure: ', value = 1.225)
+        rho_input = st.number_input('Density: ', value = 1.225)
         st.write('Current value is:', rho_input )
 
 with tab2: 
