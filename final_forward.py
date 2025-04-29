@@ -404,53 +404,53 @@ def combined(acc_func, ss_func, peel, switch_schedule, drag_adv, df,
 # %% [markdown]
 # calling this
 
-# %%
-#reading in data from spreadsheet
-df = pd.read_excel('final_data_sheet.xlsx')
-# Load the data
-power_curve = pd.read_excel("final_data_sheet.xlsx", sheet_name="Power Curves")
+# # %%
+# #reading in data from spreadsheet
+# df = pd.read_excel('final_data_sheet.xlsx')
+# # Load the data
+# power_curve = pd.read_excel("final_data_sheet.xlsx", sheet_name="Power Curves")
 
-rider_data = {}
-W_rem = {}
-chosen_athletes = [1, 2, 3, 4]  # Example athlete numbers
+# rider_data = {}
+# W_rem = {}
+# chosen_athletes = [1, 2, 3, 4]  # Example athlete numbers
 
-for rider in chosen_athletes:
-    W_prime, CP, AC, Pmax, m_rider = get_rider_info(rider, df)
-    rider_data[rider] = {
-        "W_prime": W_prime,
-        # "t_prime": t_prime,
-        "CP": CP,
-        "AC": AC,
-        # "Pmax": Pmax,
-        "m_rider": m_rider,
-    }
-    W_rem[rider] = W_prime
+# for rider in chosen_athletes:
+#     W_prime, CP, AC, Pmax, m_rider = get_rider_info(rider, df)
+#     rider_data[rider] = {
+#         "W_prime": W_prime,
+#         # "t_prime": t_prime,
+#         "CP": CP,
+#         "AC": AC,
+#         # "Pmax": Pmax,
+#         "m_rider": m_rider,
+#     }
+#     W_rem[rider] = W_prime
 
-drag_adv = [1, 0.58, 0.52, 0.53]
-switch_schedule = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
-switch_schedule2 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
-switch_schedule3 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
-switch_schedule4 = [0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
+# drag_adv = [1, 0.58, 0.52, 0.53]
+# switch_schedule = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
+# switch_schedule2 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+# switch_schedule3 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+# switch_schedule4 = [0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
 
-starttime = time.time()
-v_SS, t_final, W_rem, slope, P_const, t_half_lap, final_order = combined(
-    accel_phase,
-    race_energy,
-    25,
-    switch_schedule4,
-    drag_adv,
-    df,
-    order=[1, 2, 3, 4]
-)
-endtime = time.time()
-print(f"Time taken: {endtime - starttime:.2f} seconds")
+# starttime = time.time()
+# v_SS, t_final, W_rem, slope, P_const, t_half_lap, final_order = combined(
+#     accel_phase,
+#     race_energy,
+#     25,
+#     switch_schedule4,
+#     drag_adv,
+#     df,
+#     order=[1, 2, 3, 4]
+# )
+# endtime = time.time()
+# print(f"Time taken: {endtime - starttime:.2f} seconds")
 
-# %%
-print(f"Steady State Velocity: {v_SS:.2f} m/s")
-print(f"Total time: {t_final:.2f} seconds")
-print(f"Remaining W': {W_rem}")
-print(f"Slope: {slope:.2f} W/m")
-print(f"Constant Power: {P_const:.2f} W")
-print(f"Time to reach half lap: {t_half_lap:.2f} seconds")
+# # %%
+# print(f"Steady State Velocity: {v_SS:.2f} m/s")
+# print(f"Total time: {t_final:.2f} seconds")
+# print(f"Remaining W': {W_rem}")
+# print(f"Slope: {slope:.2f} W/m")
+# print(f"Constant Power: {P_const:.2f} W")
+# print(f"Time to reach half lap: {t_half_lap:.2f} seconds")
 
 
