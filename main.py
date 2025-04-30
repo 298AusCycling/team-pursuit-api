@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from optimization import genetic_algorithm
 import itertools
 import time
+from datetime import datetime
 
 app = FastAPI()
 
@@ -11,6 +12,7 @@ def root():
 
 @app.post("/run_optimization")
 def run_full_optimization():
+    print("🚀 Optimization triggered at", datetime.now())
     all_orders = list(itertools.permutations([1, 2, 3, 4]))
     list_of_initial_orders = [list(p) for p in all_orders]
 
