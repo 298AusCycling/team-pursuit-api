@@ -1,6 +1,6 @@
-streamlit
-pandas
+fastapi
+uvicorn
 numpy
+pandas
 matplotlib
 scipy
-openpyxl
