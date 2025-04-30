@@ -402,7 +402,8 @@ def combined(acc_func, ss_func, peel, switch_schedule, drag_adv, df,
             min_v = v
 
 # %% [markdown]
-# calling this
+
+## Uncoment this for a test run 
 
 # # %%
 # #reading in data from spreadsheet
