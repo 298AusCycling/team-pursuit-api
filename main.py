@@ -1,46 +1,50 @@
 from fastapi import FastAPI
+from datetime import datetime
 from optimization import genetic_algorithm
 import itertools
-import time
-from datetime import datetime
 
 app = FastAPI()
 
-@app.get("/")
-def root():
-    return {"message": "Optimization API is running."}
-
 @app.post("/run_optimization")
-def run_full_optimization():
-    print("🚀 Optimization triggered at", datetime.now())
-    all_orders = list(itertools.permutations([1, 2, 3, 4]))
-    list_of_initial_orders = [list(p) for p in all_orders]
+def run_optimization():
+    start_time = datetime.now()
+    print(f"🚀 Optimization triggered at {start_time}")
 
-    huge_dict = {}
-    start = time.time()
-    
-    for acceleration_length in range(3, 5):
-        for peel in range(10, 33):
-            for initial_order in list_of_initial_orders: 
-                for num_changes in (7, 16):
-                    output = genetic_algorithm(
-                        peel=peel,
-                        initial_order=initial_order,
-                        acceleration_length=acceleration_length,
-                        num_changes=num_changes,
-                        num_children=10,
-                        num_seeds=4,
-                        num_rounds=5
-                    )[2]  # result dictionary
-                    huge_dict.update(output)
+    list_of_initial_orders = list(itertools.permutations([0, 1, 2, 3]))
+    num_changes_list = [3, 5]
 
-    sorted_final_dict = dict(sorted(huge_dict.items(), key=lambda item: item[1]))
-    top_5 = list(sorted_final_dict.items())[:5]
-    end = time.time()
+    all_results = []
+    total_races = 0
+
+    for acceleration_length in [3, 4]:
+        for peel in range(10, 33):  # 10 to 32 inclusive
+            for initial_order in list_of_initial_orders:
+                for num_changes in num_changes_list:
+                    # Run the optimizer
+                    try:
+                        _, best_time, best_schedule = genetic_algorithm(
+                            acceleration_length=acceleration_length,
+                            peel_index=peel,
+                            num_changes=num_changes,
+                            initial_order=list(initial_order),
+                            num_children=10,
+                            num_seeds=4,
+                            num_rounds=5,
+                        )
+                        total_races += 10 * 5  # children × rounds
+                        all_results.append((best_schedule, best_time))
+                    except Exception as e:
+                        print(f"⚠️ Optimization failed for order {initial_order}, peel {peel}, error: {e}")
+
+    # Sort results and select top 5
+    top_results = sorted(all_results, key=lambda x: x[1])[:5]
+    runtime = (datetime.now() - start_time).total_seconds()
+
+    print(f"✅ Optimization completed with {total_races} races in {runtime:.2f} seconds")
 
     return {
-        "status": "completed",
-        "top_results": top_5,
-        "total_races_simulated": len(huge_dict),
-        "runtime_seconds": round(end - start, 2)
+        "message": "Optimization complete",
+        "runtime_seconds": runtime,
+        "total_races_simulated": total_races,
+        "top_results": [(schedule, round(time, 2)) for schedule, time in top_results],
     }
