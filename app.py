@@ -7,16 +7,28 @@ import sqlite3
 import json
 from datetime import datetime
 from final_forward import combined, accel_phase, race_energy
-import matplotlib.pyplot as plt
-from optimization import genetic_algorithm
+import matplotlib
+matplotlib.use("Agg")
 import requests
+
 
 st.set_page_config(layout="wide")
 main_title = st.title("Team Pursuit Race Simulator")
-
+print("🔁 Version 2025-05-08-A")
 # --- Setup database ---
 conn = sqlite3.connect("simulations.db", check_same_thread=False)
 cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS optimizations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT,
+    total_races INTEGER,
+    runtime_seconds REAL,
+    result_json TEXT
+)
+""")
+conn.commit()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS simulations (
@@ -62,7 +74,21 @@ def save_simulation_to_db(record):
     ))
     conn.commit()
 
+def save_optimization_to_db(runtime, total_races, top_results):
+    cursor.execute("""
+        INSERT INTO optimizations (
+            timestamp, total_races, runtime_seconds, result_json
+        ) VALUES (?, ?, ?, ?)
+    """, (
+        datetime.now().isoformat(),
+        total_races,
+        runtime,
+        json.dumps(top_results),
+    ))
+    conn.commit()
+
 def plot_switch_strategy(start_order, switch_schedule):
+    import matplotlib.pyplot as plt
     colors = {rider: color for rider, color in zip(start_order, ['#2ca02c', '#1f77b4', '#ff7f0e', '#d62728'])}
     lead_segments = []
     leader_index = 0
@@ -94,13 +120,12 @@ def plot_switch_strategy(start_order, switch_schedule):
     ax.set_title("Turn Strategy")
     ax.grid(True, axis="x")
     st.pyplot(fig)
+    plt.close(fig)
 
 model_type = st.radio("Select Model Type",
     ["Pro", "Lite"],
     index=None,
 )
-
-
 
 if model_type == "Lite":
     st.markdown('***User Input Model***')
@@ -275,12 +300,10 @@ if model_type == "Lite":
                         cursor.execute("DELETE FROM simulations WHERE id = ?", (row["id"],))
                         conn.commit()
                         st.success(f"Simulation #{row['id']} deleted successfully.")
-                        st.experimental_rerun()
-
+                        st.rerun()
         else:
             st.info("No simulations available yet.")
 elif model_type == "Pro":
-    st.warning("🧪 Running the REAL app.py ✅")
     st.markdown('***Optimization Model***')
     tab5, tab6, tab7, tab8 = st.tabs(["Data Input", "Advanced Settings", "Simulate Race", "Previous Simulations"])
     with tab5: 
@@ -292,36 +315,92 @@ elif model_type == "Pro":
     with tab7:
         if uploaded_file_opt:
             if st.button("Run Optimization Model"):
-                with st.spinner("Running optimization... this may take a while."):
+                with st.spinner("Initializing VM and running optimization..."):
                     try:
-                        st.markdown("Sending request to backend...")
-                        st.warning("🚨 Attempting request to correct endpoint!")
-                        print("🔍 DEBUG: About to send POST to run_optimization")
+                        st.markdown("🌐 Sending startup request to VM...")
+                        cloud_function_url = "https://us-central1-team-pursuit-optimizer.cloudfunctions.net/start-vm-lite"
+
+                        vm_start_response = requests.post(cloud_function_url, timeout=10)
+                        if vm_start_response.status_code == 200:
+                            st.success("✅ VM start requested.")
+                        st.markdown("📤 Sending optimization request...")
                         response = requests.post(
-                        "http://34.30.90.46:8000/run_optimization", 
-                        timeout=3600,
-                        headers={"Content-Type": "application/json"},
-                        json={}  # Empty JSON object or add parameters if needed
-                        )   
+                            "http://35.209.48.32:8000/run_optimization",
+                            timeout=3600,
+                            headers={"Content-Type": "application/json"},
+                            json={}
+                        )
 
-
-                        st.markdown("Response received!")
-                        
                         if response.status_code == 200:
                             result = response.json()
+                            save_optimization_to_db(
+                                result["runtime_seconds"],
+                                result["total_races_simulated"],
+                                result["top_results"]
+                            )
                             st.success("✅ Optimization Complete!")
                             st.markdown(f"**Total Races Simulated:** {result['total_races_simulated']}")
                             st.markdown(f"**Runtime:** {result['runtime_seconds']} seconds")
 
                             st.subheader("Top 5 Results:")
-                            for i, (schedule, time) in enumerate(result["top_results"], 1):
-                                st.markdown(f"**#{i}** – Time: `{round(time, 2)}s`, Switch Schedule: `{schedule}`")
+                            for i, res in enumerate(result["top_results"], 1):
+                                best_schedule = min(res["schedule"].items(), key=lambda x: x[1])
+                                st.markdown(f"**#{i}** – Time: `{round(best_schedule[1], 2)}s`, Schedule: `{best_schedule[0]}`")
+
                         else:
-                            st.error("❌ Backend error. Status code: {}".format(response.status_code))
+                            st.error(f"❌ Backend error. Status code: {response.status_code}")
+
                     except Exception as e:
                         st.error(f"❌ Request failed: {e}")
+
         else:
             st.info("Please upload a dataset first.")
+        with tab8:
+            st.subheader("Previous Optimization Runs")
+            cursor.execute("SELECT * FROM optimizations ORDER BY id DESC")
+            rows = cursor.fetchall()
+
+            if rows:
+                df_opt = pd.DataFrame([
+                    {
+                        "id": row[0],
+                        "timestamp": row[1],
+                        "total_races": row[2],
+                        "runtime_seconds": row[3],
+                        "top_results": json.loads(row[4])
+                    }
+                    for row in rows
+                ])
+
+                st.download_button(
+                    "Download as CSV",
+                    data=df_opt.to_csv(index=False).encode("utf-8"),
+                    file_name="optimizations.csv",
+                    mime="text/csv",
+                )
+
+                for i, row in df_opt.iterrows():
+                    with st.expander(f"Optimization #{row['id']} — {row['timestamp']}"):
+                        for j, res in enumerate(row["top_results"], 1):
+                            if isinstance(res["schedule"], dict):
+                                best_key, best_time = min(res["schedule"].items(), key=lambda x: x[1])
+                                st.markdown(f"**#{j}** – Time: `{round(best_time, 2)}s`, Schedule: `{best_key}`")
+                                st.markdown(f"**Runtime:** `{row['runtime_seconds']:.2f} seconds`")
+                            else:
+                                st.markdown(f"**#{j}** – Time: `{res['time']}s`, Schedule: `{res['schedule']}`")
+
+                        delete = st.button(f"Delete Simulation #{row['id']}", key=f"delete_{row['id']}")
+                        if delete:
+                            cursor.execute("DELETE FROM optimizations WHERE id = ?", (row["id"],))
+                            conn.commit()
+                            st.success(f"Simulation #{row['id']} deleted successfully.")
+                            st.rerun()
+
+            else:
+                st.info("No optimizations stored yet.")
+
+
+
 
 
 

@@ -201,34 +201,34 @@ def genetic_algorithm(peel, initial_order, acceleration_length, num_changes, num
 # # %%
 # # testing it out just one time 
 
-# start1=time.time()
-# genetic_algorithm(peel=25, initial_order=[1,2,3,4], acceleration_length=3, num_changes=14, num_children = 10, num_seeds = 4, num_rounds = 5)
-# end1=time.time()
+start1=time.time()
+genetic_algorithm(peel=25, initial_order=[1,2,3,4], acceleration_length=3, num_changes=14, num_children = 10, num_seeds = 4, num_rounds = 5)
+end1=time.time()
 # print(f"Running took {end1 - start1:.4f} seconds")
-# # We need to run this for all 20+ peels, 24 initial orders, 2 acceleration lengths, and 10 ish peels
+# We need to run this for all 20+ peels, 24 initial orders, 2 acceleration lengths, and 10 ish peels
 
-# # %%
+# %%
 # print(counter)
 
-# # %%
-# # Looping through all of the orders 
+# %%
+# Looping through all of the orders 
 
-# counter = 0 # reset the globabl variable 
-# all_orders = list(itertools.permutations([1, 2, 3, 4]))
-# list_of_initial_orders =  [list(p) for p in itertools.permutations([1, 2, 3, 4])]
+counter = 0 # reset the globabl variable 
+all_orders = list(itertools.permutations([1, 2, 3, 4]))
+list_of_initial_orders =  [list(p) for p in itertools.permutations([0,1,2,3])]
 
-# start = time.time()
-# huge_dict = {}
-# for acceleration_length in range(3,5):
-#     for peel in range(10,33):
-#     #for peel in range(15,29):
-#         for initial_order in list_of_initial_orders: 
-#             for num_changes in (7,16):
-#             #for num_changes in (14,15):
-#                 initial_dict = genetic_algorithm(peel=peel, initial_order=initial_order, acceleration_length=acceleration_length, num_changes=num_changes, num_children = 10, num_seeds = 4, num_rounds = 5)[2]
-#                 huge_dict.update(initial_dict)
-# end=time.time()
-# print(f"Loop took {end - start:.4f} seconds")
+start = time.time()
+huge_dict = {}
+for acceleration_length in range(3,4):
+    for peel in range(10,33):
+    #for peel in range(15,29):
+        for initial_order in all_orders: 
+            for num_changes in (3,4,5,6,7,8,9,10,11,12):
+            #for num_changes in (14,15):
+                initial_dict = genetic_algorithm(peel=peel, initial_order=initial_order, acceleration_length=acceleration_length, num_changes=num_changes, num_children = 50, num_seeds = 4, num_rounds = 20)[2]
+                huge_dict.update(initial_dict)
+end=time.time()
+print(f"Loop took {end - start:.4f} seconds")
 
 # sorted_final_dict = dict(sorted(huge_dict.items(), key=lambda item: item[1]))
 # print(list(sorted_final_dict.items())[:5])
@@ -260,3 +260,5 @@ def genetic_algorithm(peel, initial_order, acceleration_length, num_changes, num
 # print(counter)
 
 
+
+# %%
