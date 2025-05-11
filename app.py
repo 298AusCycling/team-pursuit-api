@@ -305,14 +305,61 @@ elif model_type == "Pro":
     st.markdown('***Optimization Model***')
     tab5, tab6, tab7, tab8 = st.tabs(["Data Input", "Advanced Settings", "Simulate Race", "Previous Simulations"])
     with tab5: 
-        uploaded_file_opt = st.file_uploader("Upload Performance Data Excel File", type=["xlsx"])
+        uploaded_file_opt = st.file_uploader(
+        "Upload Performance Data Excel File",
+        type=["xlsx"],
+        key="optimizer_upload",
+    )
+
+    if uploaded_file_opt:
+        df_opt = pd.read_excel(uploaded_file_opt)
+
+        # Extract numeric rider IDs, eg “M123” → 123
+        available_riders = (
+            df_opt["Name"].str.extract(r"M(\d+)")[0]
+            .dropna()
+            .astype(int)
+            .tolist()
+        )
+
+        # cache for next tabs
+        st.session_state["df_opt"] = df_opt
+        st.session_state["available_riders"] = available_riders
+
+        st.success(f"Loaded {len(df_opt)} rows. "
+                   f"Found riders: {sorted(available_riders)}")
+    else:
+        st.session_state.pop("df_opt",  None)
+        st.session_state.pop("available_riders", None)
+
     with tab6:
         rho_input_opt = st.number_input("**Air Density (kg/m³)**", value=1.225, step=0.001, format="%.3f")
         Crr_input_opt = st.number_input("**Rolling Resistance (Crr)**", value=0.0018, step=0.0001, format="%.4f")
         v0_input_opt = st.number_input("**Initial Velocity (m/s)**", value=0.5, step=0.01, format="%.2f")
     with tab7:
         if uploaded_file_opt:
-            run_btn = st.button("Run Optimization Model")
+            if "df_opt" not in st.session_state:
+                st.info("Upload a data sheet in the *Data Input* tab first.")
+                st.stop()
+            df_opt          = st.session_state["df_opt"]
+            available       = st.session_state["available_riders"]
+            chosen_riders = st.multiselect(
+                "Select exactly 4 riders for optimisation",
+                options=sorted(available),
+                key="chosen_riders_opt",
+            )
+            run_disabled = len(chosen_riders) != 4
+            run_btn      = st.button("Run Optimization Model",
+                                    disabled=run_disabled)
+            if run_btn:
+                payload = {
+                    "workbook": df_opt.to_json(orient="split"),
+                    "rider_ids": chosen_riders,
+                    "drag_adv": [1.0, 0.58, 0.52, 0.53],
+                    "rho": rho_input_opt,
+                    "Crr": Crr_input_opt,
+                    "v0": v0_input_opt,
+                }
 
             # 1️⃣  Button clicked – start VM & submit job
             if run_btn and not st.session_state.opt_polling:

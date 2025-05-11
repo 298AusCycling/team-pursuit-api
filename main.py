@@ -8,9 +8,20 @@ import time
 from threading import Thread
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import uuid
+from pydantic import BaseModel
+import pandas as pd
 
 app = FastAPI()
 jobs: dict[str, dict] = {}        # job_id ➜ {"state": "...", "progress": 0-100, "result": …}
+
+class OptRequest(BaseModel):
+    workbook: str
+    rider_ids: list[int]
+    drag_adv: list[float]
+    rho: float
+    Crr: float
+    v0: float
+
 def run_opt_job(job_id: str):
     try:
         t0 = time.time()
@@ -90,9 +101,19 @@ def trigger_shutdown():
     shutdown_vm("team-pursuit-optimizer", "us-central1-f", "optimization-backend")
 
 @app.post("/run_optimization")
-def run_optimization(background: BackgroundTasks):
-    """Start job, return job_id immediately."""
+def run_optimization(req: OptRequest, background: BackgroundTasks):
     job_id = str(uuid.uuid4())
+    jobs[job_id] = {
+        "state": "queued",
+        "ctx": {
+            "df": pd.read_json(req.workbook, orient="split"),
+            "rider_ids": req.rider_ids,
+            "drag_adv": req.drag_adv,
+            "rho": req.rho,
+            "Crr": req.Crr,
+            "v0": req.v0,
+        },
+    }
     background.add_task(run_opt_job, job_id)
     return {"job_id": job_id}
 
