@@ -30,9 +30,8 @@ def run_opt_job(job_id: str):
         with ProcessPoolExecutor() as pool:
             for i, res in enumerate(pool.map(simulate_one, tasks), 1):
                 if res["success"]:
-                    results.append((res["schedule"], res["time"]))
-                    total_races += 1            # or += 50 if that’s the real count
-                jobs[job_id]["progress"] = int(i / total * 100)
+                    results.append(res["result"])        # <-- full optimiser tuple
+                    total_races += res["races"]          # ← each simulate_one returns how many inner races it ran
 
         top5 = sorted(results, key=lambda x: x[1])[:5]
         runtime = time.time() - t0
@@ -42,10 +41,14 @@ def run_opt_job(job_id: str):
             "runtime_seconds": runtime,
             "total_races_simulated": total_races,
             "top_results": [
-                {"schedule": {str(k): v for k, v in sched.items()},
-                 "time": t}
-                for sched, t in top5
-            ],
+            {
+                "time": t,
+                "switches": sched[0],               # (4, 8, 13, 20, …)
+                "initial_order": sched[2:6],        # (4, 1, 3, 2)
+                "peel": sched[-1],                  # 20
+            }
+            for sched, t in top5
+        ],
         }
 
         # Optional – fire and forget
@@ -54,29 +57,25 @@ def run_opt_job(job_id: str):
     except Exception as e:
         jobs[job_id] = {"state": "error", "error": str(e)}
 def simulate_one(args):
+    accel_len, peel, order, changes = args
     try:
-        best_time, best_schedule, _ = genetic_algorithm(
-        peel=args[1],
-        initial_order=list(args[2]),
-        acceleration_length=args[0],
-        num_changes=args[3],
-        num_children=10,
-        num_seeds=4,
-        num_rounds=5,
-    )
+        time_race, schedule_tuple, _ = genetic_algorithm(
+            peel=peel,
+            initial_order=list(order),
+            acceleration_length=accel_len,
+            num_changes=changes,
+            num_children=10,
+            num_seeds=4,
+            num_rounds=5,
+        )
+        # genetic_algorithm simulates (10 children × 5 rounds) = 50 races
         return {
             "success": True,
-            "schedule": best_schedule,
-            "time": best_time
+            "result": (schedule_tuple, time_race),
+            "races": 50,
         }
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "peel": args[1],
-            "order": args[2]
-        }
-
+        return {"success": False, "error": str(e), "races": 0}
 def shutdown_vm(project_id, zone, instance_name):
     credentials = compute_engine.Credentials()
     service = discovery.build('compute', 'v1', credentials=credentials)

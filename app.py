@@ -370,10 +370,17 @@ elif model_type == "Pro":
 
                         st.subheader("Top 5 Results")
                         for i, res in enumerate(data["top_results"], 1):
+                            switches = ", ".join(map(str, res["switches"]))
+                            init_ord = "-".join(map(str, res["initial_order"]))
+                            peel_at  = res["peel"]
+
                             st.markdown(
-                                f"**#{i}** — Time: **{res['time']:.2f} s**  •  "
-                                f"Schedule: `{res['schedule']}`"
-    )
+                                f"**#{i}** — **{res['time']:.2f} s**  \n"
+                                f"• Initial order: `{init_ord}`  \n"
+                                f"• Peel after half-lap: **{peel_at}**  \n"
+                                f"• Switch schedule: `{switches}`"
+                            )
+
                     elif data.get("state") == "error":
                         st.session_state.opt_polling = False
                         progress.empty()
@@ -418,12 +425,16 @@ elif model_type == "Pro":
             for i, row in df_opt.iterrows():
                 with st.expander(f"Optimization #{row['id']} — {row['timestamp']}"):
                     for j, res in enumerate(row["top_results"], 1):
-                        if isinstance(res["schedule"], dict):
-                            st.markdown(
-                            f"**#{j}** — Time: **{res['time']:.2f} s**  •  "
-                            f"Schedule: `{res['schedule']}`"
-                        )
+                        switches = ", ".join(map(str, res["switches"]))
+                        init_ord = "-".join(map(str, res["initial_order"]))
+                        peel_at  = res["peel"]
 
+                        st.markdown(
+                            f"**#{i}** — **{res['time']:.2f} s**  \n"
+                            f"• Initial order: `{init_ord}`  \n"
+                            f"• Peel after half-lap: **{peel_at}**  \n"
+                            f"• Switch schedule: `{switches}`"
+                        )
                     delete = st.button(f"Delete Simulation #{row['id']}", key=f"delete_{row['id']}")
                     if delete:
                         cursor.execute("DELETE FROM optimizations WHERE id = ?", (row["id"],))
