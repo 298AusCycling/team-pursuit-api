@@ -361,7 +361,7 @@ elif model_type == "Pro":
                     "v0": v0_input_opt,
                 }
 
-            # 1️⃣  Button clicked – start VM & submit job
+            
             if run_btn and not st.session_state.opt_polling:
                 with st.spinner("Starting optimisation VM…"):
                     try:
@@ -373,15 +373,23 @@ elif model_type == "Pro":
                         st.warning(f"VM start request failed (proceeding anyway): {e}")
 
                 with st.spinner("Submitting optimisation job…"):
-                    try:
-                        r = requests.post("http://35.209.48.32:8000/run_optimization", timeout=60)
-                        r.raise_for_status()
+                    with st.spinner("Submitting optimisation job…"):
+                        try:
+                            r = requests.post(
+                                "http://35.209.48.32:8000/run_optimization",
+                                json=payload,
+                                timeout=60,
+                            )
+                            r.raise_for_status()        # <-- still raises on 422
+                        except requests.HTTPError as e:
+                            st.error(f"HTTP {e.response.status_code}: {e.response.text}")  # ★
+                            st.stop()
                         st.session_state.opt_job_id = r.json()["job_id"]
                         st.session_state.opt_polling = True
                         st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
                         st.rerun()          # kick off the polling loop immediately
-                    except Exception as e:
-                        st.error(f"Could not start optimisation: {e}")
+                    # except Exception as e:
+                    #     st.error(f"Could not start optimisation: {e}")
 
             if st.session_state.opt_polling and st.session_state.opt_job_id:
                 job_id = st.session_state.opt_job_id
