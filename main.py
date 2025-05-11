@@ -10,6 +10,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import uuid
 from pydantic import BaseModel
 import pandas as pd
+import re
 
 app = FastAPI()
 jobs: dict[str, dict] = {}        # job_id ➜ {"state": "...", "progress": 0-100, "result": …}
@@ -23,18 +24,21 @@ class OptRequest(BaseModel):
     v0: float
 
 def run_opt_job(job_id: str):
+    ctx   = jobs[job_id]["ctx"]            # ← pull once
+    df    = ctx["df"]
+    r_ids = ctx["rider_ids"]
     try:
         t0 = time.time()
         jobs[job_id] = {"state": "running", "progress": 0}
 
         tasks = [
-            (al, peel, order, chg)
+            (al, peel, order, chg, ctx)        # ← append ctx
             for al in [3, 4]
             for peel in range(10, 33)
-            for order in itertools.permutations([0, 1, 2, 3])
+            for order in itertools.permutations(r_ids)
             for chg in [3, 5]
         ]
-        total = len(tasks)
+        print("Prepared", len(tasks), "tasks")
         total_races = 0
         results = []
         print("Prepared", len(tasks), "tasks")
@@ -68,26 +72,50 @@ def run_opt_job(job_id: str):
     except Exception as e:
         jobs[job_id] = {"state": "error", "error": str(e)}
 def simulate_one(args):
-    accel_len, peel, order, changes = args
+    accel_len, peel, order, changes, ctx = args
+    df        = ctx["df"]
+    drag_adv  = ctx["drag_adv"]
+    rider_ids = ctx["rider_ids"]
+
+    number_to_name = {
+        int(m.group(1)): name
+        for name in df["Name"]
+        if (m := re.search(r"M(\d+)", name))
+    }
+    def info(rid):
+        row = df[df["Name"] == number_to_name[rid]].iloc[0]
+        return {
+            "W'":  float(row["W'"]) * 1000,
+            "CP":  float(row["CP"]),
+            "CdA": float(row["CdA"]),
+            "Pmax":float(row["Pmax"]),
+            "mass":float(row["Mass"]),
+        }
+    rider_data = {rid: info(rid) for rid in rider_ids}
+    W_rem      = [rider_data[r]["W'"] for r in rider_ids]
+
     try:
         time_race, schedule_tuple, _ = genetic_algorithm(
-            peel=peel,
-            initial_order=list(order),
-            acceleration_length=accel_len,
-            num_changes=changes,
-            num_children=10,
-            num_seeds=4,
-            num_rounds=5,
+            peel              = peel,
+            initial_order     = list(order),
+            acceleration_length = accel_len,
+            num_changes       = changes,
+            drag_adv          = drag_adv,
+            df                = df,
+            rider_data        = rider_data,
+            W_rem             = W_rem,
+            num_children      = 10,
+            num_seeds         = 4,
+            num_rounds        = 5,
         )
-        # genetic_algorithm simulates (10 children × 5 rounds) = 50 races
         return {
             "success": True,
             "result": (schedule_tuple, time_race),
-            "races": 50,
+            "races": 50,   # one GA call covers 50 inner simulations
         }
     except Exception as e:
         print("simulate_one failed:", e)
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e), "races": 0}
 def shutdown_vm(project_id, zone, instance_name):
     credentials = compute_engine.Credentials()
     service = discovery.build('compute', 'v1', credentials=credentials)
