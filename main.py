@@ -37,7 +37,7 @@ def run_opt_job(job_id: str):
         total = len(tasks)
         total_races = 0
         results = []
-
+        print("Prepared", len(tasks), "tasks")
         with ProcessPoolExecutor() as pool:
             for i, res in enumerate(pool.map(simulate_one, tasks), 1):
                 if res["success"]:
@@ -86,7 +86,8 @@ def simulate_one(args):
             "races": 50,
         }
     except Exception as e:
-        return {"success": False, "error": str(e), "races": 0}
+        print("simulate_one failed:", e)
+        return {"success": False, "error": str(e)}
 def shutdown_vm(project_id, zone, instance_name):
     credentials = compute_engine.Credentials()
     service = discovery.build('compute', 'v1', credentials=credentials)
