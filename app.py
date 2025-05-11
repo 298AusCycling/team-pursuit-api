@@ -425,7 +425,11 @@ elif model_type == "Pro":
 
                         st.subheader("Top 5 Results")
                         for i, res in enumerate(data["top_results"], 1):
-                            switches = ", ".join(map(str, res["switches"]))
+                            switches_raw = res["switches"]
+                            if isinstance(switches_raw, (list, tuple)):
+                                switches = ", ".join(map(str, switches_raw))
+                            else:
+                                switches = str(switches_raw)          
                             init_ord = "-".join(map(str, res["initial_order"]))
                             peel_at  = res["peel"]
 
@@ -480,7 +484,11 @@ elif model_type == "Pro":
             for i, row in df_opt.iterrows():
                 with st.expander(f"Optimization #{row['id']} — {row['timestamp']}"):
                     for j, res in enumerate(row["top_results"], 1):
-                        switches = ", ".join(map(str, res["switches"]))
+                        switches_raw = res["switches"]
+                        if isinstance(switches_raw, (list, tuple)):
+                            switches = ", ".join(map(str, switches_raw))
+                        else:
+                            switches = str(switches_raw)          # single value → just show it
                         init_ord = "-".join(map(str, res["initial_order"]))
                         peel_at  = res["peel"]
 
