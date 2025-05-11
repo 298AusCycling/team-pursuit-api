@@ -1,5 +1,3 @@
-# app.py
-
 import streamlit as st
 import pandas as pd
 import time
@@ -11,10 +9,13 @@ import matplotlib
 matplotlib.use("Agg")
 import requests
 
-
 st.set_page_config(layout="wide")
 main_title = st.title("Team Pursuit Race Simulator")
-print("🔁 Version 2025-05-08-A")
+if "opt_job_id" not in st.session_state:
+    st.session_state.opt_job_id = None
+if "opt_polling" not in st.session_state:
+    st.session_state.opt_polling = False
+
 # --- Setup database ---
 conn = sqlite3.connect("simulations.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -110,7 +111,7 @@ def plot_switch_strategy(start_order, switch_schedule):
     for segment in lead_segments:
         rider = segment["rider"]
         y = y_levels[rider]
-        ax.broken_barh([(segment["start"], segment["duration"])], (y - 0.4, 0.8), facecolors=colors[rider])
+        ax.broken_barh([(segment["start"], segment["duration"])] , (y - 0.4, 0.8), facecolors=colors[rider])
         ax.text(segment["start"] + segment["duration"] / 2, y, f'{segment["duration"]}', ha="center", va="center", fontsize=9, color="white")
 
     ax.set_yticks(list(y_levels.values()))
@@ -122,10 +123,7 @@ def plot_switch_strategy(start_order, switch_schedule):
     st.pyplot(fig)
     plt.close(fig)
 
-model_type = st.radio("Select Model Type",
-    ["Pro", "Lite"],
-    index=None,
-)
+model_type = st.radio("Select Model Type", ["Pro", "Lite"], index=None)
 
 if model_type == "Lite":
     st.markdown('***User Input Model***')
@@ -314,90 +312,126 @@ elif model_type == "Pro":
         v0_input_opt = st.number_input("**Initial Velocity (m/s)**", value=0.5, step=0.01, format="%.2f")
     with tab7:
         if uploaded_file_opt:
-            if st.button("Run Optimization Model"):
-                with st.spinner("Initializing VM and running optimization..."):
-                    try:
-                        st.markdown("🌐 Sending startup request to VM...")
-                        cloud_function_url = "https://us-central1-team-pursuit-optimizer.cloudfunctions.net/start-vm-lite"
+            run_btn = st.button("Run Optimization Model")
 
-                        vm_start_response = requests.post(cloud_function_url, timeout=10)
-                        if vm_start_response.status_code == 200:
-                            st.success("✅ VM start requested.")
-                        st.markdown("📤 Sending optimization request...")
-                        response = requests.post(
-                            "http://35.209.48.32:8000/run_optimization",
-                            timeout=3600,
-                            headers={"Content-Type": "application/json"},
-                            json={}
+            # 1️⃣  Button clicked – start VM & submit job
+            if run_btn and not st.session_state.opt_polling:
+                with st.spinner("Starting optimisation VM…"):
+                    try:
+                        cloud_function_url = (
+                            "https://us-central1-team-pursuit-optimizer.cloudfunctions.net/start-vm-lite"
+                        )
+                        requests.post(cloud_function_url, timeout=60)
+                    except Exception as e:
+                        st.warning(f"VM start request failed (proceeding anyway): {e}")
+
+                with st.spinner("Submitting optimisation job…"):
+                    try:
+                        r = requests.post("http://35.209.48.32:8000/run_optimization", timeout=60)
+                        r.raise_for_status()
+                        st.session_state.opt_job_id = r.json()["job_id"]
+                        st.session_state.opt_polling = True
+                        st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
+                        st.rerun()          # kick off the polling loop immediately
+                    except Exception as e:
+                        st.error(f"Could not start optimisation: {e}")
+
+            if st.session_state.opt_polling and st.session_state.opt_job_id:
+                job_id = st.session_state.opt_job_id
+                status_box = st.empty()
+                progress = st.progress(0)
+
+                try:
+                    resp = requests.get(f"http://35.209.48.32:8000/run_optimization/{job_id}", timeout=10)
+                    data = resp.json()
+
+                    if data.get("state") == "running":
+                        pct = data.get("progress", 0)
+                        progress.progress(pct, text=f"{pct}% complete")
+                        status_box.info(f"Job `{job_id}` is running…")
+                        time.sleep(5)
+                        st.rerun()   # refresh the page and poll again
+
+                    elif data.get("state") == "done":
+                        progress.progress(100, text="Finished ✅")
+                        st.session_state.opt_polling = False
+
+                        # Save to DB
+                        save_optimization_to_db(
+                            data["runtime_seconds"],
+                            data["total_races_simulated"],
+                            data["top_results"],
                         )
 
-                        if response.status_code == 200:
-                            result = response.json()
-                            save_optimization_to_db(
-                                result["runtime_seconds"],
-                                result["total_races_simulated"],
-                                result["top_results"]
-                            )
-                            st.success("✅ Optimization Complete!")
-                            st.markdown(f"**Total Races Simulated:** {result['total_races_simulated']}")
-                            st.markdown(f"**Runtime:** {result['runtime_seconds']} seconds")
+                        st.success(
+                            f"Optimisation finished in {data['runtime_seconds']:.1f} s "
+                            f"after {data['total_races_simulated']:,} races."
+                        )
 
-                            st.subheader("Top 5 Results:")
-                            for i, res in enumerate(result["top_results"], 1):
-                                best_schedule = min(res["schedule"].items(), key=lambda x: x[1])
-                                st.markdown(f"**#{i}** – Time: `{round(best_schedule[1], 2)}s`, Schedule: `{best_schedule[0]}`")
+                        st.subheader("Top 5 Results")
+                        for i, res in enumerate(data["top_results"], 1):
+                            st.markdown(
+                                f"**#{i}** — Time: **{res['time']:.2f} s**  •  "
+                                f"Schedule: `{res['schedule']}`"
+    )
+                    elif data.get("state") == "error":
+                        st.session_state.opt_polling = False
+                        progress.empty()
+                        st.error(f"Job failed: {data['error']}")
 
-                        else:
-                            st.error(f"❌ Backend error. Status code: {response.status_code}")
+                    else:
+                        st.session_state.opt_polling = False
+                        progress.empty()
+                        st.error("Unknown job status.")
 
-                    except Exception as e:
-                        st.error(f"❌ Request failed: {e}")
+                except Exception as e:
+                   st.session_state.opt_polling = False
+                   progress.empty()            # clear bar here too
+                   st.error(f"Error contacting backend: {e}")
 
         else:
             st.info("Please upload a dataset first.")
-        with tab8:
-            st.subheader("Previous Optimization Runs")
-            cursor.execute("SELECT * FROM optimizations ORDER BY id DESC")
-            rows = cursor.fetchall()
+    with tab8:
+        st.subheader("Previous Optimization Runs")
+        cursor.execute("SELECT * FROM optimizations ORDER BY id DESC")
+        rows = cursor.fetchall()
 
-            if rows:
-                df_opt = pd.DataFrame([
-                    {
-                        "id": row[0],
-                        "timestamp": row[1],
-                        "total_races": row[2],
-                        "runtime_seconds": row[3],
-                        "top_results": json.loads(row[4])
-                    }
-                    for row in rows
-                ])
+        if rows:
+            df_opt = pd.DataFrame([
+                {
+                    "id": row[0],
+                    "timestamp": row[1],
+                    "total_races": row[2],
+                    "runtime_seconds": row[3],
+                    "top_results": json.loads(row[4])
+                }
+                for row in rows
+            ])
 
-                st.download_button(
-                    "Download as CSV",
-                    data=df_opt.to_csv(index=False).encode("utf-8"),
-                    file_name="optimizations.csv",
-                    mime="text/csv",
-                )
+            st.download_button(
+                "Download as CSV",
+                data=df_opt.to_csv(index=False).encode("utf-8"),
+                file_name="optimizations.csv",
+                mime="text/csv",
+            )
 
-                for i, row in df_opt.iterrows():
-                    with st.expander(f"Optimization #{row['id']} — {row['timestamp']}"):
-                        for j, res in enumerate(row["top_results"], 1):
-                            if isinstance(res["schedule"], dict):
-                                best_key, best_time = min(res["schedule"].items(), key=lambda x: x[1])
-                                st.markdown(f"**#{j}** – Time: `{round(best_time, 2)}s`, Schedule: `{best_key}`")
-                                st.markdown(f"**Runtime:** `{row['runtime_seconds']:.2f} seconds`")
-                            else:
-                                st.markdown(f"**#{j}** – Time: `{res['time']}s`, Schedule: `{res['schedule']}`")
+            for i, row in df_opt.iterrows():
+                with st.expander(f"Optimization #{row['id']} — {row['timestamp']}"):
+                    for j, res in enumerate(row["top_results"], 1):
+                        if isinstance(res["schedule"], dict):
+                            st.markdown(
+                            f"**#{j}** — Time: **{res['time']:.2f} s**  •  "
+                            f"Schedule: `{res['schedule']}`"
+                        )
 
-                        delete = st.button(f"Delete Simulation #{row['id']}", key=f"delete_{row['id']}")
-                        if delete:
-                            cursor.execute("DELETE FROM optimizations WHERE id = ?", (row["id"],))
-                            conn.commit()
-                            st.success(f"Simulation #{row['id']} deleted successfully.")
-                            st.rerun()
+                    delete = st.button(f"Delete Simulation #{row['id']}", key=f"delete_{row['id']}")
+                    if delete:
+                        cursor.execute("DELETE FROM optimizations WHERE id = ?", (row["id"],))
+                        conn.commit()
+                        st.success(f"Simulation #{row['id']} deleted successfully.")
+                        st.rerun()
 
-            else:
-                st.info("No optimizations stored yet.")
+
 
 
 
