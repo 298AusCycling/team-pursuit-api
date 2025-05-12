@@ -5,7 +5,6 @@ import sqlite3
 import json
 from datetime import datetime
 from final_forward import combined, accel_phase, race_energy
-from plots import combined2, get_rider_info, accel_phase2, race_energy2, bar_chart, plot_power_table, plot_power_profile_over_half_laps, velocity_profile
 import matplotlib
 matplotlib.use("Agg")
 import requests
@@ -89,9 +88,30 @@ def save_optimization_to_db(runtime, total_races, top_results):
     ))
     conn.commit()
 
+async def poll_for_results():
+    status_url = "http://35.209.48.32:8000/status"
+    result_url = "http://35.209.48.32:8000/results"
+    for attempt in range(120):  # Poll for up to 20 minutes
+        try:
+            status_response = requests.get(status_url, timeout=10)
+            if status_response.ok and status_response.json().get("status") == "complete":
+                result_response = requests.get(result_url, timeout=10)
+                if result_response.ok:
+                    return result_response.json()
+                else:
+                    st.error("⚠️ Failed to fetch results after completion.")
+                    return None
+            elif status_response.ok:
+                st.info(f"🕒 Optimization status: {status_response.json().get('status')}")
+        except Exception as e:
+            st.warning(f"⚠️ Polling error: {e}")
+
+
+    st.error("❌ Optimization timed out after 20 minutes.")
+    return None
+
 def plot_switch_strategy(start_order, switch_schedule):
     import matplotlib.pyplot as plt
-
     colors = {rider: color for rider, color in zip(start_order, ['#2ca02c', '#1f77b4', '#ff7f0e', '#d62728'])}
     lead_segments = []
     leader_index = 0
@@ -107,44 +127,23 @@ def plot_switch_strategy(start_order, switch_schedule):
     if start < len(switch_schedule):
         lead_segments.append({"rider": start_order[leader_index % len(start_order)], "start": start, "duration": len(switch_schedule) - start + 1})
 
-    # Group segments by rider
-    segments_by_rider = {r: [] for r in start_order}
-    for seg in lead_segments:
-        segments_by_rider[seg["rider"]].append(seg)
-
-    fig, ax = plt.subplots(figsize=(12, 4))
+    fig, ax = plt.subplots(figsize=(10, 4))
     y_levels = {rider: i for i, rider in enumerate(reversed(start_order))}
 
-    for rider in start_order:
+    for segment in lead_segments:
+        rider = segment["rider"]
         y = y_levels[rider]
-        rider_segs = sorted(segments_by_rider[rider], key=lambda x: x["start"])
-        prev_end = 0
-        for seg in rider_segs:
-            x = seg["start"]
-            w = seg["duration"]
-            ax.broken_barh([(x, w)], (y - 0.4, 0.8), facecolors=colors[rider])
-            ax.text(x + w / 2, y, f'{w}', ha="center", va="center", fontsize=9, color="white")
-
-            if prev_end < x:
-                rest_len = x - prev_end
-                mid = (prev_end + x) / 2
-                ax.text(mid, y + 0.25, f'{rest_len}', ha="center", va="bottom", fontsize=8, color="black")
-            prev_end = x + w
+        ax.broken_barh([(segment["start"], segment["duration"])] , (y - 0.4, 0.8), facecolors=colors[rider])
+        ax.text(segment["start"] + segment["duration"] / 2, y, f'{segment["duration"]}', ha="center", va="center", fontsize=9, color="white")
 
     ax.set_yticks(list(y_levels.values()))
-    ax.set_yticklabels([f"Rider {r}" for r in reversed(start_order)])
+    ax.set_yticklabels(list(y_levels.keys()))
     ax.set_xlabel("Half-laps")
     ax.set_ylabel("Rider")
     ax.set_title("Turn Strategy")
-    ax.set_xlim(0, len(switch_schedule) + 2)
     ax.grid(True, axis="x")
     st.pyplot(fig)
     plt.close(fig)
-
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.table import Table
-
 
 model_type = st.radio("Select Model Type", ["Pro", "Lite"], index=None)
 
@@ -169,7 +168,7 @@ if model_type == "Lite":
             left_col, right_col = st.columns([1, 3])
 
             with left_col:
-                df_athletes = pd.read_excel(uploaded_file, engine="openpyxl")
+                df_athletes = pd.read_excel(uploaded_file)
 
                 available_athletes = (
                     df_athletes["Name"]
@@ -218,34 +217,20 @@ if model_type == "Lite":
             with right_col:
                 if simulate and start_order and peel_location is not None:
                     with st.spinner("Running simulation..."):
-
-                        # Load data from uploaded file
-                        df_athletes = pd.read_excel(uploaded_file, engine="openpyxl")
-
-                        # Step 1: Prepare rider data and initial W'
-                        rider_data = {}
-                        W_rem = {}
-                        for rider in chosen_athletes:
-                            W_prime, CP, AC, Pmax, m_rider = get_rider_info(rider, df=df_athletes)
-                            rider_data[rider] = {
-                                "W_prime": W_prime,
-                                "CP": CP,
-                                "AC": AC,
-                                "Pmax": Pmax,
-                                "m_rider": m_rider,
-                            }
-                            W_rem[rider] = W_prime
-
-                        # Step 2: Set drafting coefficients
-                        drag_adv = [1.0, 0.58, 0.52, 0.53]
-
-                        # Step 3: Run the full simulation
-                        v_SS, t_final, W_rem, slope, P_const, t_half_lap, ss_powers, ss_energies, ss_total_energies, W_rem_acc, power_profile_acc, v_acc = combined2(
-                            accel_phase2, race_energy2, peel_location, switch_schedule, drag_adv,
-                            df_athletes, rider_data, W_rem, P0=50, order=start_order
+                        v_SS, t_final, W_rem, slope, P_const, t_half_lap, final_order = combined(
+                            accel_phase,
+                            race_energy,
+                            peel_location,
+                            switch_schedule,
+                            drag_adv=[1, 0.58, 0.52, 0.53],
+                            df=df_athletes,
+                            chosen_athletes=chosen_athletes,
+                            order=start_order,
+                            rho=rho_input,
+                            Crr=Crr_input,
+                            v0=v0_input
                         )
 
-                    # Step 4: Display Results
                     with st.container():
                         row1 = st.columns(3)
                         with row1[0]:
@@ -253,7 +238,7 @@ if model_type == "Lite":
                             st.markdown(f"{t_final:.2f} s")
                         with row1[1]:
                             st.markdown("**Final Order**")
-                            st.markdown(", ".join(str(rider) for rider in start_order))  # Note: This might be updated if peel affects order
+                            st.markdown(", ".join(str(rider) for rider in final_order))
                         with row1[2]:
                             st.markdown("**Turns:**")
                             switches = switch_schedule_description(switch_schedule)
@@ -261,46 +246,25 @@ if model_type == "Lite":
 
                         st.subheader("Turn Strategy Timeline")
                         plot_switch_strategy(start_order, switch_schedule)
-                        rider_colors = {
-                            1: "#1f77b4",  # blue
-                            2: "#ff7f0e",  # orange
-                            3: "#2ca02c",  # green
-                            4: "#d62728",  # red
-                        }
-                        st.subheader("Plots")
-                        fig1 = bar_chart(rider_data, start_order, W_rem)
-                        st.pyplot(fig1)
-                        fig2 = plot_power_table(
-                            ss_powers, start_order, 50, slope, t_half_lap, P_const,
-                            switch_schedule, rider_colors, power_profile_acc,
-                            W_rem_acc, rider_data, ss_energies
-                        )
-                        st.pyplot(fig2)
-                        fig3 = plot_power_profile_over_half_laps(
-                            ss_powers, rider_data, start_order, 50, slope, t_half_lap, P_const,
-                            switch_schedule, rider_colors, v_SS
-                        )
-                        st.pyplot(fig3)
-                        fig4 = velocity_profile(v_acc, v_SS, t_final, dt=0.05)
-                        st.pyplot(fig4)
-                        
-                    st.subheader("W′ Remaining per Rider:")
-                    for r in start_order:
-                        st.write(f"**Rider {r-1}**: {W_rem[r-1]:.1f} J")
 
-                    simulation_record = {
-                        "timestamp": time.time(),
-                        "chosen_athletes": chosen_athletes,
-                        "start_order": start_order,
-                        "switch_schedule": switch_schedule,
-                        "peel_location": peel_location,
-                        "final_order": start_order,  # You can update this if needed
-                        "final_time": t_final,
-                        "final_distance": None,
-                        "final_half_lap_count": None,
-                        "W_rem": W_rem,
-                    }
-                    save_simulation_to_db(simulation_record)
+                        st.subheader("W′ Remaining per Rider:")
+                        for idx, energy_left in enumerate(W_rem):
+                            st.write(f"**Rider {idx+1}**: {energy_left:.1f} J")
+
+                        simulation_record = {
+                            "timestamp": time.time(),
+                            "chosen_athletes": chosen_athletes,
+                            "start_order": start_order,
+                            "switch_schedule": switch_schedule,
+                            "peel_location": peel_location,
+                            "final_order": final_order,
+                            "final_time": t_final,
+                            "final_distance": None,
+                            "final_half_lap_count": None,
+                            "W_rem": W_rem,
+                        }
+                        save_simulation_to_db(simulation_record)
+
         else:
             st.info("Please upload a dataset first.")
 
@@ -363,92 +327,39 @@ elif model_type == "Pro":
     st.markdown('***Optimization Model***')
     tab5, tab6, tab7, tab8 = st.tabs(["Data Input", "Advanced Settings", "Simulate Race", "Previous Simulations"])
     with tab5: 
-        uploaded_file_opt = st.file_uploader(
-        "Upload Performance Data Excel File",
-        type=["xlsx"],
-        key="optimizer_upload",
-    )
-
-    if uploaded_file_opt:
-        df_opt = pd.read_excel(uploaded_file_opt)
-
-        # Extract numeric rider IDs, eg “M123” → 123
-        available_riders = (
-            df_opt["Name"].str.extract(r"M(\d+)")[0]
-            .dropna()
-            .astype(int)
-            .tolist()
-        )
-
-        # cache for next tabs
-        st.session_state["df_opt"] = df_opt
-        st.session_state["available_riders"] = available_riders
-
-        st.success(f"Loaded {len(df_opt)} rows. "
-                   f"Found riders: {sorted(available_riders)}")
-    else:
-        st.session_state.pop("df_opt",  None)
-        st.session_state.pop("available_riders", None)
-
+        uploaded_file_opt = st.file_uploader("Upload Performance Data Excel File", type=["xlsx"])
     with tab6:
         rho_input_opt = st.number_input("**Air Density (kg/m³)**", value=1.225, step=0.001, format="%.3f")
         Crr_input_opt = st.number_input("**Rolling Resistance (Crr)**", value=0.0018, step=0.0001, format="%.4f")
         v0_input_opt = st.number_input("**Initial Velocity (m/s)**", value=0.5, step=0.01, format="%.2f")
     with tab7:
         if uploaded_file_opt:
-            if "df_opt" not in st.session_state:
-                st.info("Upload a data sheet in the *Data Input* tab first.")
-                st.stop()
-            df_opt          = st.session_state["df_opt"]
-            available       = st.session_state["available_riders"]
-            chosen_riders = st.multiselect(
-                "Select exactly 4 riders for optimisation",
-                options=sorted(available),
-                key="chosen_riders_opt",
-            )
-            run_disabled = len(chosen_riders) != 4
-            run_btn      = st.button("Run Optimization Model",
-                                    disabled=run_disabled)
-            if run_btn:
-                payload = {
-                    "workbook": df_opt.to_json(orient="split"),
-                    "rider_ids": chosen_riders,
-                    "drag_adv": [1.0, 0.58, 0.52, 0.53],
-                    "rho": rho_input_opt,
-                    "Crr": Crr_input_opt,
-                    "v0": v0_input_opt,
-                }
+            # -----------------------  NEW NON-BLOCKING VERSION  -----------------------
+            run_btn = st.button("Run Optimization Model")
 
-            
+            # 1️⃣  Button clicked – start VM & submit job
             if run_btn and not st.session_state.opt_polling:
                 with st.spinner("Starting optimisation VM…"):
                     try:
                         cloud_function_url = (
                             "https://us-central1-team-pursuit-optimizer.cloudfunctions.net/start-vm-lite"
                         )
-                        requests.post(cloud_function_url, timeout=60)
+                        requests.post(cloud_function_url, timeout=10)
                     except Exception as e:
                         st.warning(f"VM start request failed (proceeding anyway): {e}")
 
                 with st.spinner("Submitting optimisation job…"):
-                    with st.spinner("Submitting optimisation job…"):
-                        try:
-                            r = requests.post(
-                                "http://35.209.48.32:8000/run_optimization",
-                                json=payload,
-                                timeout=60,
-                            )
-                            r.raise_for_status()        # <-- still raises on 422
-                        except requests.HTTPError as e:
-                            st.error(f"HTTP {e.response.status_code}: {e.response.text}")  # ★
-                            st.stop()
+                    try:
+                        r = requests.post("http://35.209.48.32:8000/run_optimization", timeout=10)
+                        r.raise_for_status()
                         st.session_state.opt_job_id = r.json()["job_id"]
                         st.session_state.opt_polling = True
                         st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
                         st.rerun()          # kick off the polling loop immediately
-                    # except Exception as e:
-                    #     st.error(f"Could not start optimisation: {e}")
+                    except Exception as e:
+                        st.error(f"Could not start optimisation: {e}")
 
+            # 2️⃣  Polling loop (runs on every rerun while opt_polling = True)
             if st.session_state.opt_polling and st.session_state.opt_job_id:
                 job_id = st.session_state.opt_job_id
                 status_box = st.empty()
@@ -463,7 +374,7 @@ elif model_type == "Pro":
                         progress.progress(pct, text=f"{pct}% complete")
                         status_box.info(f"Job `{job_id}` is running…")
                         time.sleep(5)
-                        st.rerun()   # refresh the page and poll again
+                        st.experimental_rerun()   # refresh the page and poll again
 
                     elif data.get("state") == "done":
                         progress.progress(100, text="Finished ✅")
@@ -483,19 +394,9 @@ elif model_type == "Pro":
 
                         st.subheader("Top 5 Results")
                         for i, res in enumerate(data["top_results"], 1):
-                            switches_raw = res["switches"]
-                            if isinstance(switches_raw, (list, tuple)):
-                                switches = ", ".join(map(str, switches_raw))
-                            else:
-                                switches = str(switches_raw)          
-                            init_ord = "-".join(map(str, res["initial_order"]))
-                            peel_at  = res["peel"]
-
+                            best_key, best_time = min(res["schedule"].items(), key=lambda x: x[1])
                             st.markdown(
-                                f"**#{i}** — **{res['time']:.2f} s**  \n"
-                                f"• Initial order: `{init_ord}`  \n"
-                                f"• Peel after half-lap: **{peel_at}**  \n"
-                                f"• Switch schedule: `{switches}`"
+                                f"**#{i}** — Time: **{best_time:.2f} s**  •  Schedule: `{best_key}`"
                             )
 
                     elif data.get("state") == "error":
@@ -509,12 +410,12 @@ elif model_type == "Pro":
                         st.error("Unknown job status.")
 
                 except Exception as e:
-                   st.session_state.opt_polling = False
-                   progress.empty()            # clear bar here too
-                   st.error(f"Error contacting backend: {e}")
+                    st.session_state.opt_polling = False
+                    progress.empty()
+                    st.error(f"Error contacting backend: {e}")
 
-        else:
-            st.info("Please upload a dataset first.")
+                else:
+                    st.info("Please upload a dataset first.")
     with tab8:
         st.subheader("Previous Optimization Runs")
         cursor.execute("SELECT * FROM optimizations ORDER BY id DESC")
@@ -542,20 +443,13 @@ elif model_type == "Pro":
             for i, row in df_opt.iterrows():
                 with st.expander(f"Optimization #{row['id']} — {row['timestamp']}"):
                     for j, res in enumerate(row["top_results"], 1):
-                        switches_raw = res["switches"]
-                        if isinstance(switches_raw, (list, tuple)):
-                            switches = ", ".join(map(str, switches_raw))
+                        if isinstance(res["schedule"], dict):
+                            best_key, best_time = min(res["schedule"].items(), key=lambda x: x[1])
+                            st.markdown(f"**#{j}** – Time: `{round(best_time, 2)}s`, Schedule: `{best_key}`")
+                            st.markdown(f"**Runtime:** `{row['runtime_seconds']:.2f} seconds`")
                         else:
-                            switches = str(switches_raw)          # single value → just show it
-                        init_ord = "-".join(map(str, res["initial_order"]))
-                        peel_at  = res["peel"]
+                            st.markdown(f"**#{j}** – Time: `{res['time']}s`, Schedule: `{res['schedule']}`")
 
-                        st.markdown(
-                            f"**#{j}** — **{res['time']:.2f} s**  \n"
-                            f"• Initial order: `{init_ord}`  \n"
-                            f"• Peel after half-lap: **{peel_at}**  \n"
-                            f"• Switch schedule: `{switches}`"
-                        )
                     delete = st.button(f"Delete Simulation #{row['id']}", key=f"delete_{row['id']}")
                     if delete:
                         cursor.execute("DELETE FROM optimizations WHERE id = ?", (row["id"],))
