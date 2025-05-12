@@ -429,8 +429,8 @@ def black_box(schedule, peel, initial_order, acceleration_length, drag_adv, df, 
         counter += 1
         return t_out  # total race time
     except Exception as e:
-        print(f"Failed model run: {e}")
-        return 9999
+        # propagate to parent so simulate_one can capture it
+        raise RuntimeError(f"black_box failed: {e}") from e
 
 
 # %%
@@ -625,6 +625,11 @@ def genetic_algorithm(peel, initial_order, acceleration_length, num_changes,
                       drag_adv, df, rider_data, W_rem,
                       num_children=10, num_seeds=4, num_rounds=5, P0=50):
     
+    if len(drag_adv) != len(initial_order):
+        raise ValueError(
+            f"drag_adv must have exactly {len(initial_order)} entries "
+            f"(got {len(drag_adv)}: {drag_adv})"
+        )
     warm_start = np.linspace(acceleration_length+1, 31.9, num=num_changes, dtype=int).tolist()
     parent_list = []
 
