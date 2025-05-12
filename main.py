@@ -80,17 +80,43 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
     df        = ctx["df"]
     drag_adv  = ctx["drag_adv"]
     rider_ids = ctx["rider_ids"]
-    number_to_name = {
-    idx: name
-    for idx, name in enumerate(df["Name"])
-    }
+    number_to_name = {idx: name for idx, name in enumerate(df["Name"])}
+
+    # DEBUG: Show mapping and rider_ids
+    logger.warning(f"rider_ids = {rider_ids}")
+    logger.warning(f"number_to_name = {number_to_name}")
+
+    # Check and build rider_data safely
+    rider_data = {}
+    for rid in rider_ids:
+        if rid not in number_to_name:
+            raise ValueError(f"rider ID {rid} not found in number_to_name")
+
+        name = number_to_name[rid]
+        match = df[df["Name"] == name]
+
+        if match.empty:
+            raise ValueError(f"No match in df for name '{name}'")
+
+        row = match.iloc[0]
+
+    try:
+        rider_data[rid] = {
+            "W_prime": float(row["W'"]) * 1000,
+            "CP":      float(row["CP"]),
+            "AC":      float(row["CdA"]),
+            "Pmax":    float(row["Pmax"]),
+            "m_rider": float(row["Mass"]),
+        }
+    except Exception as e:
+        raise ValueError(f"Missing or bad data for rider {rid} / '{name}': {e}")
 
     def info(rid: int) -> dict[str, float]:
         row = df.loc[df["Name"] == number_to_name[rid]].iloc[0]
         return {
             "W_prime": float(row["W'"]) * 1000,
             "CP":      float(row["CP"]),
-            "AC":      float(row["CdA"]),      
+            "AC":      float(row["CdA"]),      #  ← make sure the key is exactly 'AC'
             "Pmax":    float(row["Pmax"]),
             "m_rider": float(row["Mass"]),
         }
