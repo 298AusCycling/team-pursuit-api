@@ -11,6 +11,7 @@ import uuid
 from pydantic import BaseModel
 import pandas as pd
 import re
+from typing import Tuple, Dict, Any
 
 app = FastAPI()
 jobs: dict[str, dict] = {}        # job_id ➜ {"state": "...", "progress": 0-100, "result": …}
@@ -71,31 +72,63 @@ def run_opt_job(job_id: str):
 
     except Exception as e:
         jobs[job_id] = {"state": "error", "error": str(e)}
-def simulate_one(args):
+def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Run one GA optimisation and package the result so `run_opt_job`
+    can slice it cleanly later on.
+
+    Parameters
+    ----------
+    args
+        (accel_len, peel, order, changes, ctx) where
+        * accel_len : int      – acceleration length (m)
+        * peel      : int      – half-lap at which the lead rider peels
+        * order     : tuple    – initial paceline order (rider IDs)
+        * changes   : int      – number of rider changes allowed
+        * ctx       : dict     – shared context (df, drag_adv, rider_ids, …)
+
+    Returns
+    -------
+    dict
+        {
+            "success": True/False,
+            "result" : (schedule_descr, race_time)  # only on success
+            "races"  : <int>                        # GA inner sims
+            "error"  : <str>                        # only on failure
+        }
+    """
     accel_len, peel, order, changes, ctx = args
     df        = ctx["df"]
     drag_adv  = ctx["drag_adv"]
     rider_ids = ctx["rider_ids"]
 
+    # -----------------------------------------------------------------
+    # helper: pull bio-mechanical data for each rider once
+    # -----------------------------------------------------------------
     number_to_name = {
         int(m.group(1)): name
         for name in df["Name"]
         if (m := re.search(r"M(\d+)", name))
     }
-    def info(rid):
+
+    def info(rid: int) -> Dict[str, float]:
         row = df[df["Name"] == number_to_name[rid]].iloc[0]
         return {
-            "W'":  float(row["W'"]) * 1000,
+            "W'":  float(row["W'"]) * 1000,  # convert kJ → J
             "CP":  float(row["CP"]),
             "CdA": float(row["CdA"]),
             "Pmax":float(row["Pmax"]),
             "mass":float(row["Mass"]),
         }
+
     rider_data = {rid: info(rid) for rid in rider_ids}
     W_rem      = [rider_data[r]["W'"] for r in rider_ids]
 
+    # -----------------------------------------------------------------
+    # main call – your GA returns (time, switch_tuple, _)
+    # -----------------------------------------------------------------
     try:
-        time_race, schedule_tuple, _ = genetic_algorithm(
+        time_race, switch_tuple, _ = genetic_algorithm(
             peel              = peel,
             initial_order     = list(order),
             acceleration_length = accel_len,
@@ -108,14 +141,33 @@ def simulate_one(args):
             num_seeds         = 4,
             num_rounds        = 5,
         )
+
+        # -----------------------------------------------------------------
+        # Build the *rich* tuple expected by `run_opt_job`
+        #
+        #   0 → switch tuple             (4, 8, 13, 20, …)
+        #   1 → literal string           "initial order:"
+        #   2–5 → four rider IDs         4, 1, 3, 2
+        #   6 → literal string           "peel location:"
+        #   7 → peel half-lap            20
+        # -----------------------------------------------------------------
+        schedule_descr = (
+            switch_tuple,
+            "initial order:", *order,
+            "peel location:", peel,
+        )
+
         return {
             "success": True,
-            "result": (schedule_tuple, time_race),
+            "result": (schedule_descr, time_race),
             "races": 50,   # one GA call covers 50 inner simulations
         }
+
     except Exception as e:
         print("simulate_one failed:", e)
         return {"success": False, "error": str(e), "races": 0}
+
+
 def shutdown_vm(project_id, zone, instance_name):
     credentials = compute_engine.Credentials()
     service = discovery.build('compute', 'v1', credentials=credentials)
