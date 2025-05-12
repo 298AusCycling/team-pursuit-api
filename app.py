@@ -394,14 +394,6 @@ elif model_type == "Pro":
         rho_input_opt = st.number_input("**Air Density (kg/m³)**", value=1.225, step=0.001, format="%.3f")
         Crr_input_opt = st.number_input("**Rolling Resistance (Crr)**", value=0.0018, step=0.0001, format="%.4f")
         v0_input_opt = st.number_input("**Initial Velocity (m/s)**", value=0.5, step=0.01, format="%.2f")
-        peel_input = st.number_input(
-                "Peel Location (half-lap index)", 0, 31, 3
-            )
-        accel_length_input = st.number_input(
-                "Acceleration Phase Length (half-laps)", 1, 31, 5
-            )
-        num_changes_input = st.number_input(
-                "Number of Switch Changes", 1, 32, 10)
         
     with tab7:
         if uploaded_file_opt:
@@ -439,47 +431,81 @@ elif model_type == "Pro":
                     except Exception as e:
                         st.warning(f"VM start request failed (proceeding anyway): {e}")
 
-                with st.spinner("Submitting optimisation job…"):
+                with st.expander("Sweep Parameters"):
+                    peel_min = st.number_input(
+                        "Min peel location (half-lap index)",
+                        min_value=0, max_value=31, value=0, step=1
+                    )
+                    peel_max = st.number_input(
+                        "Max peel location (half-lap index)",
+                        min_value=0, max_value=31, value=31, step=1
+                    )
+                    changes_min = st.number_input(
+                        "Min number of switch changes",
+                        min_value=1, max_value=32, value=1, step=1
+                    )
+                    changes_max = st.number_input(
+                        "Max number of switch changes",
+                        min_value=1, max_value=32, value=32, step=1
+                    )
+                    drag_adv_input = st.text_input(
+                        "Drafting advantages (JSON list)",
+                        value=json.dumps([1.0, 0.58, 0.52, 0.53])
+                    )
+
+                run_disabled = len(chosen_riders) != 4
+                run_btn = st.button("Run Optimization Model", disabled=run_disabled)
+                if run_btn and not st.session_state.opt_polling:
+                    # Start the VM…
+                    with st.spinner("Starting optimisation VM…"):
+                        try:
+                            requests.post(
+                                "https://us-central1-team-pursuit-optimizer.cloudfunctions.net/start-vm-lite",
+                                timeout=60
+                            )
+                        except Exception as e:
+                            st.warning(f"VM start request failed (proceeding anyway): {e}")
+
+                    # Normalize & upload CSV
+                    uploaded_file_opt.seek(0)
+                    try:
+                        df_norm = pd.read_csv(uploaded_file_opt, sep=None, engine="python")
+                    except Exception:
+                        uploaded_file_opt.seek(0)
+                        df_norm = pd.read_csv(uploaded_file_opt, delimiter=",")
+                    csv_bytes = df_norm.to_csv(index=False).encode("utf-8")
+                    files = {
+                        "file": (uploaded_file_opt.name, csv_bytes, "text/csv")
+                    }
+
+                    # ➋ Build form data for the sweep
+                    data = {
+                        "initial_order": ",".join(map(str, chosen_riders)),
+                        "peel_min": peel_min,
+                        "peel_max": peel_max,
+                        "changes_min": changes_min,
+                        "changes_max": changes_max,
+                        "drag_adv": drag_adv_input,
+                    }
+
+                    # POST to FastAPI
                     with st.spinner("Submitting optimisation job…"):
                         try:
-                            # read the user-uploaded file
-                            uploaded_file_opt.seek(0)
-                            try:
-                                # read with python engine to auto-detect delimiters
-                                df_norm = pd.read_csv(uploaded_file_opt, sep=None, engine="python")
-                            except Exception:
-                                # fallback to comma-only
-                                uploaded_file_opt.seek(0)
-                                df_norm = pd.read_csv(uploaded_file_opt, delimiter=",")
-                            csv_bytes = df_norm.to_csv(index=False).encode("utf-8")
-                            files = {
-                                "file": (
-                                    uploaded_file_opt.name,
-                                    csv_bytes,
-                                    "text/csv",
-                                )
-                            }
-                            data = {
-                                "peel": peel_input,
-                                "initial_order": ",".join(map(str, chosen_riders)),
-                                "acceleration_length": accel_length_input,
-                                "num_changes": num_changes_input,
-                            }
                             r = requests.post(
                                 "http://35.209.48.32:8000/run_optimization",
                                 data=data,
                                 files=files,
                                 timeout=30,
                             )
-                            r.raise_for_status()  # will show 422 if fields are missing/invalid
-                            st.session_state.opt_job_id = r.json()["job_id"]
-                            st.session_state.opt_polling = True
-                            st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
-                            st.rerun()
+                            r.raise_for_status()
                         except requests.HTTPError as e:
-                            st.error(f"HTTP {e.response.status_code}: {e.response.text}")  # ★
+                            st.error(f"HTTP {e.response.status_code}: {e.response.text}")
                             st.stop()
-    
+
+                        st.session_state.opt_job_id = r.json()["job_id"]
+                        st.session_state.opt_polling = True
+                        st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
+                        st.rerun()
 
             if st.session_state.opt_polling and st.session_state.opt_job_id:
                 job_id = st.session_state.opt_job_id
