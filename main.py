@@ -12,6 +12,9 @@ from pydantic import BaseModel
 import pandas as pd
 import re
 from typing import Tuple, Dict, Any
+import traceback, logging
+logger = logging.getLogger(__name__)
+
 
 app = FastAPI()
 jobs: dict[str, dict] = {}        # job_id ➜ {"state": "...", "progress": 0-100, "result": …}
@@ -126,7 +129,7 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
 
     except Exception as e:
         print("simulate_one failed:", e)
-        return {"success": False, "error": str(e), "races": 0}
+        logger.exception("simulate_one failed")
 
 
 def shutdown_vm(project_id, zone, instance_name):
