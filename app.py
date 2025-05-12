@@ -155,7 +155,7 @@ if model_type == "Lite":
 
     # --- Tab 1: Upload Data ---
     with tab1:
-        uploaded_file = st.file_uploader("Upload Performance Data Excel File", type=["xlsx"])
+        uploaded_file = st.file_uploader("Upload Performance Data CSV File", type=["csv"])
 
     # --- Tab 2: Advanced Settings ---
     with tab2:
@@ -169,7 +169,7 @@ if model_type == "Lite":
             left_col, right_col = st.columns([1, 3])
 
             with left_col:
-                df_athletes = pd.read_excel(uploaded_file, engine="openpyxl")
+                df_athletes = pd.read_excel(uploaded_file)
 
                 available_athletes = (
                     df_athletes["Name"]
@@ -220,7 +220,7 @@ if model_type == "Lite":
                     with st.spinner("Running simulation..."):
 
                         # Load data from uploaded file
-                        df_athletes = pd.read_excel(uploaded_file, engine="openpyxl")
+                        df_athletes = pd.read_csv(uploaded_file)
 
                         # Step 1: Prepare rider data and initial W'
                         rider_data = {}
@@ -364,13 +364,13 @@ elif model_type == "Pro":
     tab5, tab6, tab7, tab8 = st.tabs(["Data Input", "Advanced Settings", "Simulate Race", "Previous Simulations"])
     with tab5: 
         uploaded_file_opt = st.file_uploader(
-        "Upload Performance Data Excel File",
-        type=["xlsx"],
+        "Upload Performance Data CSV File",
+        type=["csv"],
         key="optimizer_upload",
     )
 
     if uploaded_file_opt:
-        df_opt = pd.read_excel(uploaded_file_opt, engine = 'openpyxl')
+        df_opt = pd.read_csv(uploaded_file_opt)
 
         # Extract numeric rider IDs, eg “M123” → 123
         available_riders = (
