@@ -77,6 +77,16 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
     df        = ctx["df"]
     drag_adv  = ctx["drag_adv"]
     rider_ids = ctx["rider_ids"]
+    print("== DEBUG simulate_one ==")
+    print("accel_len:", accel_len)
+    print("peel:", peel)
+    print("order:", order)
+    print("changes:", changes)
+    print("rider_ids:", rider_ids)
+    print("len(rider_ids):", len(rider_ids))
+    print("drag_adv:", drag_adv)
+    print("ctx keys:", list(ctx.keys()))
+    print()
 
     number_to_name = {
         int(m.group(1)): name
@@ -84,18 +94,27 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
         if (m := re.search(r"M(\d+)", name))
     }
 
-    def info(rid: int) -> dict[str, float]:
-        row = df.loc[df["Name"] == number_to_name[rid]].iloc[0]
+    def info(rid: int) -> Dict[str, float]:
+        name = number_to_name.get(rid)
+        if not name:
+            raise ValueError(f"Rider ID {rid} not found in number_to_name mapping.")
+        
+        row_df = df[df["Name"] == name]
+        if row_df.empty:
+            raise ValueError(f"Rider name '{name}' (ID {rid}) not found in the data.")
+
+        row = row_df.iloc[0]
+
         return {
-            "W_prime": float(row["W'"]) * 1000,
-            "CP":      float(row["CP"]),
-            "AC":      float(row["CdA"]),      #  ← make sure the key is exactly 'AC'
-            "Pmax":    float(row["Pmax"]),
-            "m_rider": float(row["Mass"]),
+            "W'":  float(row["W'"]) * 1000,  # convert kJ → J
+            "CP":  float(row["CP"]),
+            "AC":  float(row["CdA"]),
+            "Pmax": float(row["Pmax"]),
+            "m_rider": float(row["m_rider"]),
         }
 
     rider_data = {rid: info(rid) for rid in rider_ids}
-    W_rem      = [rider_data[r]["W_prime"] for r in rider_ids]
+    W_rem      = [rider_data[r]["W'"] for r in rider_ids]
 
     try:
         time_race, switch_tuple, _ = genetic_algorithm(
