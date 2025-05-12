@@ -34,7 +34,7 @@ async def run_optimization(
         start_time = time.time()
         try:
             # Load DataFrame from bytes
-            df = pd.read_excel(BytesIO(data_bytes, engine = 'openpyxl'))
+            df = pd.read_csv(BytesIO(data_bytes))
 
             # Call your genetic algorithm (adjust args as needed)
             # peel, initial_order, acceleration_length, num_changes, drag_adv, df, rider_data, W_rem

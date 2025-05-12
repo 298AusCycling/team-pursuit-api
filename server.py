@@ -32,7 +32,7 @@ async def run_optimization(
         start_time = time.time()
         try:
             # Attempt to read Excel with openpyxl engine explicitly
-            df = pd.read_excel(BytesIO(data_bytes), engine="openpyxl")
+            df = pd.read_csv(BytesIO(data_bytes), engine="openpyxl")
 
             # Extract any necessary parameters from df or defaults
             peel = df.attrs.get("peel")
