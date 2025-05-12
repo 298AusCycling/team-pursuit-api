@@ -85,13 +85,22 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
     }
 
     def info(rid: int) -> Dict[str, float]:
-        row = df[df["Name"] == number_to_name[rid]].iloc[0]
+        name = number_to_name.get(rid)
+        if not name:
+            raise ValueError(f"Rider ID {rid} not found in number_to_name mapping.")
+        
+        row_df = df[df["Name"] == name]
+        if row_df.empty:
+            raise ValueError(f"Rider name '{name}' (ID {rid}) not found in the data.")
+
+        row = row_df.iloc[0]
+
         return {
             "W'":  float(row["W'"]) * 1000,  # convert kJ → J
             "CP":  float(row["CP"]),
-            "AC": float(row["CdA"]),
-            "Pmax":float(row["Pmax"]),
-            "m_rider":float(row["Mass"]),
+            "AC":  float(row["CdA"]),
+            "Pmax": float(row["Pmax"]),
+            "m_rider": float(row["Mass"]),
         }
 
     rider_data = {rid: info(rid) for rid in rider_ids}
