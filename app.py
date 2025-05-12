@@ -394,6 +394,15 @@ elif model_type == "Pro":
         rho_input_opt = st.number_input("**Air Density (kg/m³)**", value=1.225, step=0.001, format="%.3f")
         Crr_input_opt = st.number_input("**Rolling Resistance (Crr)**", value=0.0018, step=0.0001, format="%.4f")
         v0_input_opt = st.number_input("**Initial Velocity (m/s)**", value=0.5, step=0.01, format="%.2f")
+        peel_input = st.number_input(
+                "Peel Location (half-lap index)", 0, 31, 3
+            )
+        accel_length_input = st.number_input(
+                "Acceleration Phase Length (half-laps)", 1, 31, 5
+            )
+        num_changes_input = st.number_input(
+                "Number of Switch Changes", 1, 32, 10)
+        
     with tab7:
         if uploaded_file_opt:
             if "df_opt" not in st.session_state:
@@ -442,12 +451,23 @@ elif model_type == "Pro":
                                     uploaded_file_opt.type or "application/octet-stream",
                                 )
                             }
+                            data = {
+                                "peel": peel_input,
+                                "initial_order": ",".join(map(str, chosen_riders)),
+                                "acceleration_length": accel_length_input,
+                                "num_changes": num_changes_input,
+                            }
                             r = requests.post(
                                 "http://35.209.48.32:8000/run_optimization",
+                                data=data,
                                 files=files,
                                 timeout=30,
                             )
-                            r.raise_for_status()        # <-- still raises on 422
+                            r.raise_for_status()  # will show 422 if fields are missing/invalid
+                            st.session_state.opt_job_id = r.json()["job_id"]
+                            st.session_state.opt_polling = True
+                            st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
+                            st.rerun()
                         except requests.HTTPError as e:
                             st.error(f"HTTP {e.response.status_code}: {e.response.text}")  # ★
                             st.stop()
