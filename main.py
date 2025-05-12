@@ -80,7 +80,6 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
     df        = ctx["df"]
     drag_adv  = ctx["drag_adv"]
     rider_ids = ctx["rider_ids"]
-    print(f"[simulate_one] initial_order = {order}, W_rem = {W_rem}, rider_data.keys = {list(rider_data.keys())}")
     print(rider_ids, drag_adv)
     number_to_name = {
         int(m.group(1)): name
@@ -100,6 +99,7 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
 
     rider_data = {rid: info(rid) for rid in rider_ids}
     W_rem      = [rider_data[r]["W_prime"] for r in rider_ids]
+    print(f"[simulate_one] initial_order = {order}, W_rem = {W_rem}, rider_data.keys = {list(rider_data.keys())}")
 
     try:
         time_race, switch_tuple, _ = genetic_algorithm(
