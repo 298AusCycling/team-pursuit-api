@@ -91,10 +91,9 @@ def trigger_shutdown():
     shutdown_vm("team-pursuit-optimizer", "us-central1-f", "optimization-backend")
 
 @app.post("/run_optimization")
-def run_optimization(background: BackgroundTasks):
-    """Start job, return job_id immediately."""
+def run_optimization(background_tasks: BackgroundTasks):   
     job_id = str(uuid.uuid4())
-    background.add_task(run_opt_job, job_id)
+    background_tasks.add_task(run_opt_job, job_id)       
     return {"job_id": job_id}
 
 @app.get("/run_optimization/{job_id}")
