@@ -370,7 +370,7 @@ elif model_type == "Pro":
     )
 
     if uploaded_file_opt:
-        df_opt = pd.read_excel(uploaded_file_opt)
+        df_opt = pd.read_excel(uploaded_file_opt, engine = 'openpyxl')
 
         # Extract numeric rider IDs, eg “M123” → 123
         available_riders = (
