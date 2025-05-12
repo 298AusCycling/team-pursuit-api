@@ -75,45 +75,52 @@ def run_opt_job(job_id: str):
 
     except Exception as e:
         return {"success": False, "error": str(e), "races": 0}
-def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) -> Dict[str, Any]:
+def simulate_one(args):
     accel_len, peel, order, changes, ctx = args
     df        = ctx["df"]
     drag_adv  = ctx["drag_adv"]
-    rider_ids = ctx["rider_ids"]
-    print(rider_ids, drag_adv)
-    number_to_name = {
-        int(m.group(1)): name
-        for name in df["Name"]
-        if (m := re.search(r"M(\d+)", name))
-    }
+    rider_ids = ctx["rider_ids"]                 # e.g. [1,2,3,4]
+    # SHIFT to zero-based indexing:
+    rider_ids = [r - 1 for r in rider_ids]        # now [0,1,2,3]
+    order     = tuple(r - 1 for r in order)       # shift the order tuple too
 
+    # Pure function to extract one rider's stats
     def info(rid: int) -> dict[str, float]:
-        row = df.loc[df["Name"] == number_to_name[rid]].iloc[0]
+        try:
+            row = df.iloc[rid]
+        except IndexError:
+            raise ValueError(f"Bad rider index {rid}: df has only {len(df)} rows")
         return {
             "W_prime": float(row["W'"]) * 1000,
             "CP":      float(row["CP"]),
-            "AC":      float(row["CdA"]),      #  ← make sure the key is exactly 'AC'
+            "AC":      float(row["CdA"]),
             "Pmax":    float(row["Pmax"]),
             "m_rider": float(row["Mass"]),
         }
 
-    rider_data = {rid: info(rid) for rid in rider_ids}
-    W_rem      = [rider_data[r]["W_prime"] for r in rider_ids]
-    print(f"[simulate_one] initial_order = {order}, W_rem = {W_rem}, rider_data.keys = {list(rider_data.keys())}")
+    # Build the full dictionary
+    rider_data = {}
+    for rid in rider_ids:
+        rider_data[rid] = info(rid)
+
+    W_rem = [rider_data[r]["W_prime"] for r in rider_ids]
+
+    # Quick debug log
+    logger.debug(f"[simulate_one] rider_ids={rider_ids}, order={order}, W_rem={W_rem}")
 
     try:
         time_race, switch_tuple, _ = genetic_algorithm(
-            peel              = peel,
-            initial_order     = list(order),
-            acceleration_length = accel_len,
-            num_changes       = changes,
-            drag_adv          = drag_adv,
-            df                = df,
-            rider_data        = rider_data,
-            W_rem             = W_rem,
-            num_children      = 10,
-            num_seeds         = 4,
-            num_rounds        = 5,
+            peel               = peel,
+            initial_order      = list(order),
+            acceleration_length= accel_len,
+            num_changes        = changes,
+            drag_adv           = drag_adv,
+            df                 = df,
+            rider_data         = rider_data,
+            W_rem              = W_rem,
+            num_children       = 10,
+            num_seeds          = 4,
+            num_rounds         = 5,
         )
 
         schedule_descr = (
@@ -129,8 +136,8 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
         }
 
     except Exception as e:
-        print("simulate_one failed:", e)
         logger.exception("simulate_one failed")
+        return {"success": False, "error": str(e)}
 
 
 def shutdown_vm(project_id, zone, instance_name):
