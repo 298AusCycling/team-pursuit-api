@@ -454,7 +454,7 @@ elif model_type == "Pro":
                     )
 
                 run_disabled = len(chosen_riders) != 4
-                run_btn = st.button("Run Optimization Model", disabled=run_disabled)
+                run_btn = st.button("Run Optimization Model", disabled=run_disabled, key=2002)
                 if run_btn and not st.session_state.opt_polling:
                     # Start the VM…
                     with st.spinner("Starting optimisation VM…"):
