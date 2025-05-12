@@ -50,7 +50,7 @@ def run_opt_job(job_id: str):
         }
 
         # Optional – fire and forget
-        Thread(target=trigger_shutdown, daemon=True).start()
+        # Thread(target=trigger_shutdown, daemon=True).start()
 
     except Exception as e:
         jobs[job_id] = {"state": "error", "error": str(e)}
@@ -105,7 +105,7 @@ def wait_for_backend(ip, timeout=90):
 @app.get("/health", include_in_schema=False)
 def health():
     return {"status": "ok"}
-    
+
 @app.post("/run_optimization")
 def run_optimization(background_tasks: BackgroundTasks):   
     job_id = str(uuid.uuid4())
