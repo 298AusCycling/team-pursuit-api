@@ -1,7 +1,8 @@
 from fastapi import FastAPI, BackgroundTasks
 from datetime import datetime
 from optimization import genetic_algorithm
-import itertools
+import itertools  
+import requests 
 from googleapiclient import discovery
 from google.auth import compute_engine
 import time
@@ -90,6 +91,21 @@ def trigger_shutdown():
     time.sleep(15)
     shutdown_vm("team-pursuit-optimizer", "us-central1-f", "optimization-backend")
 
+def wait_for_backend(ip, timeout=90):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = requests.get(f"http://{ip}:8000/health", timeout=3)
+            if r.ok:
+                return True
+        except requests.exceptions.ConnectionError:
+            time.sleep(2)
+    return False
+
+@app.get("/health", include_in_schema=False)
+def health():
+    return {"status": "ok"}
+    
 @app.post("/run_optimization")
 def run_optimization(background_tasks: BackgroundTasks):   
     job_id = str(uuid.uuid4())
