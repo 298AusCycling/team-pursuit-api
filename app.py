@@ -88,28 +88,6 @@ def save_optimization_to_db(runtime, total_races, top_results):
     ))
     conn.commit()
 
-async def poll_for_results():
-    status_url = "http://35.209.48.32:8000/status"
-    result_url = "http://35.209.48.32:8000/results"
-    for attempt in range(120):  # Poll for up to 20 minutes
-        try:
-            status_response = requests.get(status_url, timeout=10)
-            if status_response.ok and status_response.json().get("status") == "complete":
-                result_response = requests.get(result_url, timeout=10)
-                if result_response.ok:
-                    return result_response.json()
-                else:
-                    st.error("⚠️ Failed to fetch results after completion.")
-                    return None
-            elif status_response.ok:
-                st.info(f"🕒 Optimization status: {status_response.json().get('status')}")
-        except Exception as e:
-            st.warning(f"⚠️ Polling error: {e}")
-
-
-    st.error("❌ Optimization timed out after 20 minutes.")
-    return None
-
 def plot_switch_strategy(start_order, switch_schedule):
     import matplotlib.pyplot as plt
     colors = {rider: color for rider, color in zip(start_order, ['#2ca02c', '#1f77b4', '#ff7f0e', '#d62728'])}
@@ -327,39 +305,92 @@ elif model_type == "Pro":
     st.markdown('***Optimization Model***')
     tab5, tab6, tab7, tab8 = st.tabs(["Data Input", "Advanced Settings", "Simulate Race", "Previous Simulations"])
     with tab5: 
-        uploaded_file_opt = st.file_uploader("Upload Performance Data Excel File", type=["xlsx"])
+        uploaded_file_opt = st.file_uploader(
+        "Upload Performance Data Excel File",
+        type=["xlsx"],
+        key="optimizer_upload",
+    )
+
+    if uploaded_file_opt:
+        df_opt = pd.read_excel(uploaded_file_opt)
+
+        # Extract numeric rider IDs, eg “M123” → 123
+        available_riders = (
+            df_opt["Name"].str.extract(r"M(\d+)")[0]
+            .dropna()
+            .astype(int)
+            .tolist()
+        )
+
+        # cache for next tabs
+        st.session_state["df_opt"] = df_opt
+        st.session_state["available_riders"] = available_riders
+
+        st.success(f"Loaded {len(df_opt)} rows. "
+                   f"Found riders: {sorted(available_riders)}")
+    else:
+        st.session_state.pop("df_opt",  None)
+        st.session_state.pop("available_riders", None)
+
     with tab6:
         rho_input_opt = st.number_input("**Air Density (kg/m³)**", value=1.225, step=0.001, format="%.3f")
         Crr_input_opt = st.number_input("**Rolling Resistance (Crr)**", value=0.0018, step=0.0001, format="%.4f")
         v0_input_opt = st.number_input("**Initial Velocity (m/s)**", value=0.5, step=0.01, format="%.2f")
     with tab7:
         if uploaded_file_opt:
-            # -----------------------  NEW NON-BLOCKING VERSION  -----------------------
-            run_btn = st.button("Run Optimization Model")
+            if "df_opt" not in st.session_state:
+                st.info("Upload a data sheet in the *Data Input* tab first.")
+                st.stop()
+            df_opt          = st.session_state["df_opt"]
+            available       = st.session_state["available_riders"]
+            chosen_riders = st.multiselect(
+                "Select exactly 4 riders for optimisation",
+                options=sorted(available),
+                key="chosen_riders_opt",
+            )
+            run_disabled = len(chosen_riders) != 4
+            run_btn      = st.button("Run Optimization Model",
+                                    disabled=run_disabled)
+            if run_btn:
+                payload = {
+                    "workbook": df_opt.to_json(orient="split"),
+                    "rider_ids": chosen_riders,
+                    "drag_adv": [1.0, 0.58, 0.52, 0.53],
+                    "rho": rho_input_opt,
+                    "Crr": Crr_input_opt,
+                    "v0": v0_input_opt,
+                }
 
-            # 1️⃣  Button clicked – start VM & submit job
+            
             if run_btn and not st.session_state.opt_polling:
                 with st.spinner("Starting optimisation VM…"):
                     try:
                         cloud_function_url = (
                             "https://us-central1-team-pursuit-optimizer.cloudfunctions.net/start-vm-lite"
                         )
-                        requests.post(cloud_function_url, timeout=10)
+                        requests.post(cloud_function_url, timeout=60)
                     except Exception as e:
                         st.warning(f"VM start request failed (proceeding anyway): {e}")
 
                 with st.spinner("Submitting optimisation job…"):
-                    try:
-                        r = requests.post("http://35.209.48.32:8000/run_optimization", timeout=10)
-                        r.raise_for_status()
+                    with st.spinner("Submitting optimisation job…"):
+                        try:
+                            r = requests.post(
+                                "http://35.209.48.32:8000/run_optimization",
+                                json=payload,
+                                timeout=60,
+                            )
+                            r.raise_for_status()        # <-- still raises on 422
+                        except requests.HTTPError as e:
+                            st.error(f"HTTP {e.response.status_code}: {e.response.text}")  # ★
+                            st.stop()
                         st.session_state.opt_job_id = r.json()["job_id"]
                         st.session_state.opt_polling = True
                         st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
                         st.rerun()          # kick off the polling loop immediately
-                    except Exception as e:
-                        st.error(f"Could not start optimisation: {e}")
+                    # except Exception as e:
+                    #     st.error(f"Could not start optimisation: {e}")
 
-            # 2️⃣  Polling loop (runs on every rerun while opt_polling = True)
             if st.session_state.opt_polling and st.session_state.opt_job_id:
                 job_id = st.session_state.opt_job_id
                 status_box = st.empty()
@@ -374,7 +405,7 @@ elif model_type == "Pro":
                         progress.progress(pct, text=f"{pct}% complete")
                         status_box.info(f"Job `{job_id}` is running…")
                         time.sleep(5)
-                        st.experimental_rerun()   # refresh the page and poll again
+                        st.rerun()   # refresh the page and poll again
 
                     elif data.get("state") == "done":
                         progress.progress(100, text="Finished ✅")
@@ -394,9 +425,19 @@ elif model_type == "Pro":
 
                         st.subheader("Top 5 Results")
                         for i, res in enumerate(data["top_results"], 1):
-                            best_key, best_time = min(res["schedule"].items(), key=lambda x: x[1])
+                            switches_raw = res["switches"]
+                            if isinstance(switches_raw, (list, tuple)):
+                                switches = ", ".join(map(str, switches_raw))
+                            else:
+                                switches = str(switches_raw)          
+                            init_ord = "-".join(map(str, res["initial_order"]))
+                            peel_at  = res["peel"]
+
                             st.markdown(
-                                f"**#{i}** — Time: **{best_time:.2f} s**  •  Schedule: `{best_key}`"
+                                f"**#{i}** — **{res['time']:.2f} s**  \n"
+                                f"• Initial order: `{init_ord}`  \n"
+                                f"• Peel after half-lap: **{peel_at}**  \n"
+                                f"• Switch schedule: `{switches}`"
                             )
 
                     elif data.get("state") == "error":
@@ -410,12 +451,12 @@ elif model_type == "Pro":
                         st.error("Unknown job status.")
 
                 except Exception as e:
-                    st.session_state.opt_polling = False
-                    progress.empty()
-                    st.error(f"Error contacting backend: {e}")
+                   st.session_state.opt_polling = False
+                   progress.empty()            # clear bar here too
+                   st.error(f"Error contacting backend: {e}")
 
-                else:
-                    st.info("Please upload a dataset first.")
+        else:
+            st.info("Please upload a dataset first.")
     with tab8:
         st.subheader("Previous Optimization Runs")
         cursor.execute("SELECT * FROM optimizations ORDER BY id DESC")
@@ -443,24 +484,23 @@ elif model_type == "Pro":
             for i, row in df_opt.iterrows():
                 with st.expander(f"Optimization #{row['id']} — {row['timestamp']}"):
                     for j, res in enumerate(row["top_results"], 1):
-                        if isinstance(res["schedule"], dict):
-                            best_key, best_time = min(res["schedule"].items(), key=lambda x: x[1])
-                            st.markdown(f"**#{j}** – Time: `{round(best_time, 2)}s`, Schedule: `{best_key}`")
-                            st.markdown(f"**Runtime:** `{row['runtime_seconds']:.2f} seconds`")
+                        switches_raw = res["switches"]
+                        if isinstance(switches_raw, (list, tuple)):
+                            switches = ", ".join(map(str, switches_raw))
                         else:
-                            st.markdown(f"**#{j}** – Time: `{res['time']}s`, Schedule: `{res['schedule']}`")
+                            switches = str(switches_raw)          # single value → just show it
+                        init_ord = "-".join(map(str, res["initial_order"]))
+                        peel_at  = res["peel"]
 
+                        st.markdown(
+                            f"**#{j}** — **{res['time']:.2f} s**  \n"
+                            f"• Initial order: `{init_ord}`  \n"
+                            f"• Peel after half-lap: **{peel_at}**  \n"
+                            f"• Switch schedule: `{switches}`"
+                        )
                     delete = st.button(f"Delete Simulation #{row['id']}", key=f"delete_{row['id']}")
                     if delete:
                         cursor.execute("DELETE FROM optimizations WHERE id = ?", (row["id"],))
                         conn.commit()
                         st.success(f"Simulation #{row['id']} deleted successfully.")
                         st.rerun()
-
-
-
-
-
-
-
-
