@@ -80,12 +80,9 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
     df        = ctx["df"]
     drag_adv  = ctx["drag_adv"]
     rider_ids = ctx["rider_ids"]
-    logger.info(f"[simulate_one] initial_order = {order}, W_rem = {W_rem}, rider_data.keys = {list(rider_data.keys())}")
-    logger.info(f"rider_ids = {rider_ids}, drag_adv = {drag_adv}")
     number_to_name = {
-        int(m.group(1)): name
-        for name in df["Name"]
-        if (m := re.search(r"M(\d+)", name))
+    idx: name
+    for idx, name in enumerate(df["Name"])
     }
 
     def info(rid: int) -> dict[str, float]:
@@ -93,7 +90,7 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
         return {
             "W_prime": float(row["W'"]) * 1000,
             "CP":      float(row["CP"]),
-            "AC":      float(row["CdA"]),      #  ← make sure the key is exactly 'AC'
+            "AC":      float(row["CdA"]),      
             "Pmax":    float(row["Pmax"]),
             "m_rider": float(row["Mass"]),
         }
