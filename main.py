@@ -106,7 +106,7 @@ def simulate_one(args):
     W_rem = [rider_data[r]["W_prime"] for r in rider_ids]
 
     # Quick debug log
-    logger.debug(f"[simulate_one] rider_ids={rider_ids}, order={order}, W_rem={W_rem}")
+    print(f"[simulate_one] rider_ids={rider_ids}, order={order}, W_rem={W_rem}")
 
     try:
         time_race, switch_tuple, _ = genetic_algorithm(
@@ -136,7 +136,7 @@ def simulate_one(args):
         }
 
     except Exception as e:
-        logger.exception("simulate_one failed")
+        print("simulate_one failed")
         return {"success": False, "error": str(e)}
 
 
