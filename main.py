@@ -89,7 +89,7 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
         return {
             "W'":  float(row["W'"]) * 1000,  # convert kJ → J
             "CP":  float(row["CP"]),
-            "CdA": float(row["CdA"]),
+            "AC": float(row["CdA"]),
             "Pmax":float(row["Pmax"]),
             "m_rider":float(row["Mass"]),
         }
