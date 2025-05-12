@@ -155,7 +155,7 @@ if model_type == "Lite":
 
     # --- Tab 1: Upload Data ---
     with tab1:
-        uploaded_file = st.file_uploader("Upload Performance Data CSV File", type=["csv"])
+        uploaded_file = st.file_uploader("Upload Performance Data Excel File", type=["xlsx"])
 
     # --- Tab 2: Advanced Settings ---
     with tab2:
@@ -169,7 +169,7 @@ if model_type == "Lite":
             left_col, right_col = st.columns([1, 3])
 
             with left_col:
-                df_athletes = pd.read_excel(uploaded_file)
+                df_athletes = pd.read_excel(uploaded_file, engine="openpyxl")
 
                 available_athletes = (
                     df_athletes["Name"]
@@ -220,7 +220,7 @@ if model_type == "Lite":
                     with st.spinner("Running simulation..."):
 
                         # Load data from uploaded file
-                        df_athletes = pd.read_csv(uploaded_file)
+                        df_athletes = pd.read_excel(uploaded_file, engine="openpyxl")
 
                         # Step 1: Prepare rider data and initial W'
                         rider_data = {}
@@ -364,13 +364,13 @@ elif model_type == "Pro":
     tab5, tab6, tab7, tab8 = st.tabs(["Data Input", "Advanced Settings", "Simulate Race", "Previous Simulations"])
     with tab5: 
         uploaded_file_opt = st.file_uploader(
-        "Upload Performance Data CSV File",
-        type=["csv"],
+        "Upload Performance Data Excel File",
+        type=["xlsx"],
         key="optimizer_upload",
     )
 
     if uploaded_file_opt:
-        df_opt = pd.read_csv(uploaded_file_opt)
+        df_opt = pd.read_excel(uploaded_file_opt)
 
         # Extract numeric rider IDs, eg “M123” → 123
         available_riders = (
@@ -394,7 +394,6 @@ elif model_type == "Pro":
         rho_input_opt = st.number_input("**Air Density (kg/m³)**", value=1.225, step=0.001, format="%.3f")
         Crr_input_opt = st.number_input("**Rolling Resistance (Crr)**", value=0.0018, step=0.0001, format="%.4f")
         v0_input_opt = st.number_input("**Initial Velocity (m/s)**", value=0.5, step=0.01, format="%.2f")
-        
     with tab7:
         if uploaded_file_opt:
             if "df_opt" not in st.session_state:
@@ -431,81 +430,24 @@ elif model_type == "Pro":
                     except Exception as e:
                         st.warning(f"VM start request failed (proceeding anyway): {e}")
 
-                with st.expander("Sweep Parameters"):
-                    peel_min = st.number_input(
-                        "Min peel location (half-lap index)",
-                        min_value=0, max_value=31, value=0, step=1
-                    )
-                    peel_max = st.number_input(
-                        "Max peel location (half-lap index)",
-                        min_value=0, max_value=31, value=31, step=1
-                    )
-                    changes_min = st.number_input(
-                        "Min number of switch changes",
-                        min_value=1, max_value=32, value=1, step=1
-                    )
-                    changes_max = st.number_input(
-                        "Max number of switch changes",
-                        min_value=1, max_value=32, value=32, step=1
-                    )
-                    drag_adv_input = st.text_input(
-                        "Drafting advantages (JSON list)",
-                        value=json.dumps([1.0, 0.58, 0.52, 0.53])
-                    )
-
-                run_disabled = len(chosen_riders) != 4
-                run_btn = st.button("Run Optimization Model", disabled=run_disabled, key=2002)
-                if run_btn and not st.session_state.opt_polling:
-                    # Start the VM…
-                    with st.spinner("Starting optimisation VM…"):
-                        try:
-                            requests.post(
-                                "https://us-central1-team-pursuit-optimizer.cloudfunctions.net/start-vm-lite",
-                                timeout=60
-                            )
-                        except Exception as e:
-                            st.warning(f"VM start request failed (proceeding anyway): {e}")
-
-                    # Normalize & upload CSV
-                    uploaded_file_opt.seek(0)
-                    try:
-                        df_norm = pd.read_csv(uploaded_file_opt, sep=None, engine="python")
-                    except Exception:
-                        uploaded_file_opt.seek(0)
-                        df_norm = pd.read_csv(uploaded_file_opt, delimiter=",")
-                    csv_bytes = df_norm.to_csv(index=False).encode("utf-8")
-                    files = {
-                        "file": (uploaded_file_opt.name, csv_bytes, "text/csv")
-                    }
-
-                    # ➋ Build form data for the sweep
-                    data = {
-                        "initial_order": ",".join(map(str, chosen_riders)),
-                        "peel_min": peel_min,
-                        "peel_max": peel_max,
-                        "changes_min": changes_min,
-                        "changes_max": changes_max,
-                        "drag_adv": drag_adv_input,
-                    }
-
-                    # POST to FastAPI
+                with st.spinner("Submitting optimisation job…"):
                     with st.spinner("Submitting optimisation job…"):
                         try:
                             r = requests.post(
                                 "http://35.209.48.32:8000/run_optimization",
-                                data=data,
-                                files=files,
-                                timeout=30,
+                                json=payload,
+                                timeout=60,
                             )
-                            r.raise_for_status()
+                            r.raise_for_status()        # <-- still raises on 422
                         except requests.HTTPError as e:
-                            st.error(f"HTTP {e.response.status_code}: {e.response.text}")
+                            st.error(f"HTTP {e.response.status_code}: {e.response.text}")  # ★
                             st.stop()
-
                         st.session_state.opt_job_id = r.json()["job_id"]
                         st.session_state.opt_polling = True
                         st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
-                        st.rerun()
+                        st.rerun()          # kick off the polling loop immediately
+                    # except Exception as e:
+                    #     st.error(f"Could not start optimisation: {e}")
 
             if st.session_state.opt_polling and st.session_state.opt_job_id:
                 job_id = st.session_state.opt_job_id
