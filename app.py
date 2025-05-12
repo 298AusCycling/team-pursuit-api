@@ -443,12 +443,20 @@ elif model_type == "Pro":
                     with st.spinner("Submitting optimisation job…"):
                         try:
                             # read the user-uploaded file
-                            file_bytes = uploaded_file_opt.read()
+                            uploaded_file_opt.seek(0)
+                            try:
+                                # read with python engine to auto-detect delimiters
+                                df_norm = pd.read_csv(uploaded_file_opt, sep=None, engine="python")
+                            except Exception:
+                                # fallback to comma-only
+                                uploaded_file_opt.seek(0)
+                                df_norm = pd.read_csv(uploaded_file_opt, delimiter=",")
+                            csv_bytes = df_norm.to_csv(index=False).encode("utf-8")
                             files = {
                                 "file": (
                                     uploaded_file_opt.name,
-                                    file_bytes,
-                                    uploaded_file_opt.type or "application/octet-stream",
+                                    csv_bytes,
+                                    "text/csv",
                                 )
                             }
                             data = {
@@ -471,12 +479,7 @@ elif model_type == "Pro":
                         except requests.HTTPError as e:
                             st.error(f"HTTP {e.response.status_code}: {e.response.text}")  # ★
                             st.stop()
-                        st.session_state.opt_job_id = r.json()["job_id"]
-                        st.session_state.opt_polling = True
-                        st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
-                        st.rerun()          # kick off the polling loop immediately
-                    # except Exception as e:
-                    #     st.error(f"Could not start optimisation: {e}")
+    
 
             if st.session_state.opt_polling and st.session_state.opt_job_id:
                 job_id = st.session_state.opt_job_id
