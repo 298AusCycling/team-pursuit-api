@@ -433,10 +433,19 @@ elif model_type == "Pro":
                 with st.spinner("Submitting optimisation job…"):
                     with st.spinner("Submitting optimisation job…"):
                         try:
+                            # read the user-uploaded file
+                            file_bytes = uploaded_file_opt.read()
+                            files = {
+                                "file": (
+                                    uploaded_file_opt.name,
+                                    file_bytes,
+                                    uploaded_file_opt.type or "application/octet-stream",
+                                )
+                            }
                             r = requests.post(
                                 "http://35.209.48.32:8000/run_optimization",
-                                json=payload,
-                                timeout=60,
+                                files=files,
+                                timeout=30,
                             )
                             r.raise_for_status()        # <-- still raises on 422
                         except requests.HTTPError as e:
