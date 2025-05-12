@@ -71,40 +71,13 @@ def run_opt_job(job_id: str):
         Thread(target=trigger_shutdown, daemon=True).start()
 
     except Exception as e:
-        jobs[job_id] = {"state": "error", "error": str(e)}
+        return {"success": False, "error": str(e), "races": 0}
 def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Run one GA optimisation and package the result so `run_opt_job`
-    can slice it cleanly later on.
-
-    Parameters
-    ----------
-    args
-        (accel_len, peel, order, changes, ctx) where
-        * accel_len : int      – acceleration length (m)
-        * peel      : int      – half-lap at which the lead rider peels
-        * order     : tuple    – initial paceline order (rider IDs)
-        * changes   : int      – number of rider changes allowed
-        * ctx       : dict     – shared context (df, drag_adv, rider_ids, …)
-
-    Returns
-    -------
-    dict
-        {
-            "success": True/False,
-            "result" : (schedule_descr, race_time)  # only on success
-            "races"  : <int>                        # GA inner sims
-            "error"  : <str>                        # only on failure
-        }
-    """
     accel_len, peel, order, changes, ctx = args
     df        = ctx["df"]
     drag_adv  = ctx["drag_adv"]
     rider_ids = ctx["rider_ids"]
 
-    # -----------------------------------------------------------------
-    # helper: pull bio-mechanical data for each rider once
-    # -----------------------------------------------------------------
     number_to_name = {
         int(m.group(1)): name
         for name in df["Name"]
@@ -124,9 +97,6 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
     rider_data = {rid: info(rid) for rid in rider_ids}
     W_rem      = [rider_data[r]["W'"] for r in rider_ids]
 
-    # -----------------------------------------------------------------
-    # main call – your GA returns (time, switch_tuple, _)
-    # -----------------------------------------------------------------
     try:
         time_race, switch_tuple, _ = genetic_algorithm(
             peel              = peel,
@@ -142,15 +112,6 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
             num_rounds        = 5,
         )
 
-        # -----------------------------------------------------------------
-        # Build the *rich* tuple expected by `run_opt_job`
-        #
-        #   0 → switch tuple             (4, 8, 13, 20, …)
-        #   1 → literal string           "initial order:"
-        #   2–5 → four rider IDs         4, 1, 3, 2
-        #   6 → literal string           "peel location:"
-        #   7 → peel half-lap            20
-        # -----------------------------------------------------------------
         schedule_descr = (
             switch_tuple,
             "initial order:", *order,
