@@ -91,7 +91,7 @@ def simulate_one(args: Tuple[int, int, Tuple[int, ...], int, Dict[str, Any]]) ->
             "CP":  float(row["CP"]),
             "CdA": float(row["CdA"]),
             "Pmax":float(row["Pmax"]),
-            "mass":float(row["m_rider"]),
+            "m_rider":float(row["Mass"]),
         }
 
     rider_data = {rid: info(rid) for rid in rider_ids}
