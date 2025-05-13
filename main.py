@@ -28,53 +28,64 @@ class OptRequest(BaseModel):
     v0: float
 
 def run_opt_job(job_id: str):
-    ctx   = jobs[job_id]["ctx"]            # ← pull once
-    df    = ctx["df"]
-    r_ids = ctx["rider_ids"]
+    ctx    = jobs[job_id]["ctx"]
+    df     = ctx["df"]
+    r_ids  = ctx["rider_ids"]
+
     try:
         t0 = time.time()
-        jobs[job_id] = {"state": "running", "progress": 0}
 
+        # 1) Build your tasks _first_
         tasks = [
-            (al, peel, order, chg, ctx)        # ← append ctx
+            (al, peel, order, chg, ctx)
             for al in [3, 4]
             for peel in range(10, 33)
             for order in itertools.permutations(r_ids)
             for chg in [3, 5]
         ]
-        print("Prepared", len(tasks), "tasks")
-        total_races = 0
-        results = []
-        print("Prepared", len(tasks), "tasks")
-        with ProcessPoolExecutor() as pool:
-            for i, res in enumerate(pool.map(simulate_one, tasks), 1):
-                if res["success"]:
-                    results.append(res["result"])        # <-- full optimiser tuple
-                    total_races += res["races"]          # ← each simulate_one returns how many inner races it ran
+        total_tasks = len(tasks)
 
-        top5 = sorted(results, key=lambda x: x[1])[:5]
+        # 2) Mark job as running, progress = 0
+        jobs[job_id] = {"state": "running", "progress": 0}
+
+        total_races = 0
+        results     = []
+
+        # 3) Execute and update progress
+        with ProcessPoolExecutor() as pool:
+            for i, res in enumerate(pool.map(simulate_one, tasks), start=1):
+                # bump progress
+                jobs[job_id]["progress"] = int(i / total_tasks * 100)
+
+                if res["success"]:
+                    results.append(res["result"])
+                    total_races += res["races"]
+
+        # 4) Finalise the job dict in-place
+        top5    = sorted(results, key=lambda x: x[1])[:5]
         runtime = time.time() - t0
-        jobs[job_id] = {
-            "state": "done",
-            "progress": 100,
-            "runtime_seconds": runtime,
+
+        jobs[job_id].update({
+            "state":               "done",
+            "progress":            100,
+            "runtime_seconds":     runtime,
             "total_races_simulated": total_races,
             "top_results": [
-            {
-                "time": t,
-                "switches": sched[0],               # (4, 8, 13, 20, …)
-                "initial_order": sched[2:6],        # (4, 1, 3, 2)
-                "peel": sched[-1],                  # 20
-            }
-            for sched, t in top5
-        ],
-        }
+                {
+                    "time":          t,
+                    "switches":      sched[0],
+                    "initial_order": sched[2:6],
+                    "peel":          sched[-1],
+                }
+                for sched, t in top5
+            ],
+        })
 
-        # Optional – fire and forget
+        # Optional shutdown
         Thread(target=trigger_shutdown, daemon=True).start()
 
     except Exception as e:
-        return {"success": False, "error": str(e), "races": 0}
+        jobs[job_id].update({"state": "error", "error": str(e)})
 def simulate_one(args):
     accel_len, peel, order, changes, ctx = args
     df        = ctx["df"]
