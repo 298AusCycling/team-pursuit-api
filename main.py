@@ -79,17 +79,15 @@ def simulate_one(args):
     accel_len, peel, order, changes, ctx = args
     df        = ctx["df"]
     drag_adv  = ctx["drag_adv"]
-    rider_ids = ctx["rider_ids"]                 # e.g. [1,2,3,4]
-    # SHIFT to zero-based indexing:
-    rider_ids = [r - 1 for r in rider_ids]        # now [0,1,2,3]
-    order     = tuple(r - 1 for r in order)       # shift the order tuple too
+    # shift to zero-based IDs:
+    rider_ids = [r-1 for r in rider_ids]
+    order     = tuple(r-1 for r in order)
 
-    # Pure function to extract one rider's stats
-    def info(rid: int) -> dict[str, float]:
+    def info(rid):
         try:
             row = df.iloc[rid]
         except IndexError:
-            raise ValueError(f"Bad rider index {rid}: df has only {len(df)} rows")
+            raise ValueError(f"Bad rider index {rid}: df has {len(df)} rows")
         return {
             "W_prime": float(row["W'"]) * 1000,
             "CP":      float(row["CP"]),
@@ -98,12 +96,8 @@ def simulate_one(args):
             "m_rider": float(row["Mass"]),
         }
 
-    # Build the full dictionary
-    rider_data = {}
-    for rid in rider_ids:
-        rider_data[rid] = info(rid)
-
-    W_rem = [rider_data[r]["W_prime"] for r in rider_ids]
+    rider_data = {rid: info(rid) for rid in rider_ids}
+    W_rem      = [rider_data[r]["W_prime"] for r in rider_ids]
 
     # Quick debug log
     print(f"[simulate_one] rider_ids={rider_ids}, order={order}, W_rem={W_rem}")

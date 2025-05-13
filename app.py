@@ -4,7 +4,6 @@ import time
 import sqlite3
 import json
 from datetime import datetime
-from final_forward import combined, accel_phase, race_energy
 from plots import combined2, get_rider_info, accel_phase2, race_energy2, bar_chart, plot_power_table, plot_power_profile_over_half_laps, velocity_profile
 import matplotlib
 matplotlib.use("Agg")
