@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from datetime import datetime
 from final_optimization import genetic_algorithm
 import itertools
@@ -80,6 +80,7 @@ def simulate_one(args):
     df        = ctx["df"]
     drag_adv  = ctx["drag_adv"]
     # shift to zero-based IDs:
+    rider_ids = ctx["rider_ids"]
     rider_ids = [r-1 for r in rider_ids]
     order     = tuple(r-1 for r in order)
 
@@ -149,6 +150,10 @@ def trigger_shutdown():
 
 @app.post("/run_optimization")
 def run_optimization(req: OptRequest, background: BackgroundTasks):
+    if len(req.rider_ids) != 4:
+        raise HTTPException(422, detail=f"Exactly 4 rider_ids required (got {len(req.rider_ids)})")
+    if len(req.drag_adv) != 4:
+        raise HTTPException(422, detail=f"drag_adv must have 4 entries (got {len(req.drag_adv)})")
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "state": "queued",
