@@ -5,6 +5,7 @@ import sqlite3
 import json
 from datetime import datetime
 from plots import combined2, get_rider_info, accel_phase2, race_energy2, bar_chart, plot_power_table, plot_power_profile_over_half_laps, velocity_profile
+from final_forward import combined, accel_phase, race_energy
 import matplotlib
 matplotlib.use("Agg")
 import requests
@@ -91,7 +92,7 @@ def save_optimization_to_db(runtime, total_races, top_results):
 def plot_switch_strategy(start_order, switch_schedule):
     import matplotlib.pyplot as plt
 
-    colors = {rider: color for rider, color in zip(start_order, ['#2ca02c', '#1f77b4', '#ff7f0e', '#d62728'])}
+    colors = {rider: color for rider, color in zip(start_order, ['#C8E6C9', '#388E3C', '#02534D', '#808080'])}
     lead_segments = []
     leader_index = 0
     start = 0
@@ -144,10 +145,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.table import Table
 
+model_type = st.radio("Select Model Type", ["Optimization", "Coach Input"], index=None)
 
-model_type = st.radio("Select Model Type", ["Pro", "Lite"], index=None)
-
-if model_type == "Lite":
+if model_type == "Coach Input":
     st.markdown('***User Input Model***')
     # --- Main Tabs ---
     tab1, tab2, tab3, tab4 = st.tabs(["Data Input", "Advanced Settings", "Simulate Race", "Previous Simulations"])
@@ -236,23 +236,41 @@ if model_type == "Lite":
                             W_rem[rider] = W_prime
 
                         # Step 2: Set drafting coefficients
-                        drag_adv = [1.0, 0.58, 0.52, 0.53]
-
-                        # Step 3: Run the full simulation
+                        drag_adv = [1.0, 0.58, 0.52, 0.53]                        
+                        
+                        __, __, __, __, __, __, final_order = combined(
+                            accel_phase,
+                            race_energy,
+                            peel_location,
+                            switch_schedule,
+                            drag_adv=[1, 0.58, 0.52, 0.53],
+                            df=df_athletes,
+                            chosen_athletes=chosen_athletes,
+                            order=start_order,
+                            rho=rho_input,
+                            Crr=Crr_input,
+                            v0=v0_input
+                        )
+                        
                         v_SS, t_final, W_rem, slope, P_const, t_half_lap, ss_powers, ss_energies, ss_total_energies, W_rem_acc, power_profile_acc, v_acc = combined2(
                             accel_phase2, race_energy2, peel_location, switch_schedule, drag_adv,
                             df_athletes, rider_data, W_rem, P0=50, order=start_order
                         )
-
+                        
                     # Step 4: Display Results
                     with st.container():
                         row1 = st.columns(3)
+                        num_to_name = {}
+                        name_to_number = {}
+                        for i, name in enumerate(chosen_athletes, start=1):
+                            name_to_number[name] = i
+                            num_to_name[i] = name
                         with row1[0]:
                             st.markdown("**Total Time**")
                             st.markdown(f"{t_final:.2f} s")
                         with row1[1]:
                             st.markdown("**Final Order**")
-                            st.markdown(", ".join(str(rider) for rider in start_order))  # Note: This might be updated if peel affects order
+                            st.markdown(", ".join(str(rider) for rider in final_order))  
                         with row1[2]:
                             st.markdown("**Turns:**")
                             switches = switch_schedule_description(switch_schedule)
@@ -261,18 +279,18 @@ if model_type == "Lite":
                         st.subheader("Turn Strategy Timeline")
                         plot_switch_strategy(start_order, switch_schedule)
                         rider_colors = {
-                            1: "#1f77b4",  # blue
-                            2: "#ff7f0e",  # orange
-                            3: "#2ca02c",  # green
-                            4: "#d62728",  # red
+                            1: "#C8E6C9",  
+                            2: "#388E3C",  
+                            3: "#02534D",  
+                            4: "#808080",  
                         }
                         st.subheader("Plots")
-                        fig1 = bar_chart(rider_data, start_order, W_rem)
+                        fig1 = bar_chart(rider_data, start_order, W_rem, rider_colors)
                         st.pyplot(fig1)
                         fig2 = plot_power_table(
                             ss_powers, start_order, 50, slope, t_half_lap, P_const,
                             switch_schedule, rider_colors, power_profile_acc,
-                            W_rem_acc, rider_data, ss_energies
+                            W_rem_acc, rider_data, ss_energies, num_to_name
                         )
                         st.pyplot(fig2)
                         fig3 = plot_power_profile_over_half_laps(
@@ -293,7 +311,7 @@ if model_type == "Lite":
                         "start_order": start_order,
                         "switch_schedule": switch_schedule,
                         "peel_location": peel_location,
-                        "final_order": start_order,  # You can update this if needed
+                        "final_order": final_order,  # You can update this if needed
                         "final_time": t_final,
                         "final_distance": None,
                         "final_half_lap_count": None,
@@ -351,6 +369,13 @@ if model_type == "Lite":
                     except Exception as e:
                         st.warning("Couldn't render strategy timeline for this entry.")
                     delete = st.button(f"Delete Simulation #{row['id']}", key=f"delete_{row['id']}")
+                    try:
+                        st.pyplot(fig1)
+                        st.pyplot(fig2)
+                        st.pyplot(fig3)
+                        st.pyplot(fig4)
+                    except Exception as e:
+                        st.warning("Couldn't render plots for this entry.")
                     if delete:
                         cursor.execute("DELETE FROM simulations WHERE id = ?", (row["id"],))
                         conn.commit()
@@ -358,7 +383,7 @@ if model_type == "Lite":
                         st.rerun()
         else:
             st.info("No simulations available yet.")
-elif model_type == "Pro":
+elif model_type == "Optimization":
     st.markdown('***Optimization Model***')
     tab5, tab6, tab7, tab8 = st.tabs(["Data Input", "Advanced Settings", "Simulate Race", "Previous Simulations"])
     with tab5: 
@@ -437,13 +462,13 @@ elif model_type == "Pro":
                                 json=payload,
                                 timeout=60,
                             )
-                            r.raise_for_status()        # <-- still raises on 422
+                            r.raise_for_status()       
                         except requests.HTTPError as e:
                             st.error(f"HTTP {e.response.status_code}: {e.response.text}")  # ★
                             st.stop()
                         st.session_state.opt_job_id = r.json()["job_id"]
                         st.session_state.opt_polling = True
-                        st.success(f"🧠 Job queued: `{st.session_state.opt_job_id}`")
+                        st.success(f"Job queued: `{st.session_state.opt_job_id}`")
                         st.rerun()          # kick off the polling loop immediately
                     # except Exception as e:
                     #     st.error(f"Could not start optimisation: {e}")
@@ -465,7 +490,7 @@ elif model_type == "Pro":
                         st.rerun()   # refresh the page and poll again
 
                     elif data.get("state") == "done":
-                        progress.progress(100, text="Finished ✅")
+                        progress.progress(100, text="Finished")
                         st.session_state.opt_polling = False
 
                         # Save to DB
@@ -561,3 +586,4 @@ elif model_type == "Pro":
                         conn.commit()
                         st.success(f"Simulation #{row['id']} deleted successfully.")
                         st.rerun()
+
